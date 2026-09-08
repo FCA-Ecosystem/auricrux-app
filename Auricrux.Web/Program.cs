@@ -5,6 +5,7 @@ using Auricrux.Web.Components;
 using Auricrux.Web.Middleware;
 using Auricrux.Web.Services;
 using Auricrux.Web.Services.Breakthrough;
+using Auricrux.Web.Services.PhaseII;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -68,6 +69,7 @@ builder.Services.AddSingleton<PhysicalVerificationService>();
 builder.Services.AddSingleton<MetaLearningService>();
 builder.Services.AddSingleton<ProvableReasoningService>();
 builder.Services.AddSingleton<FoundationPourDemoService>();
+builder.Services.AddSingleton<PedagogyActService>();
 
 // Background services
 builder.Services.AddHostedService<Auricrux.Web.BackgroundServices.LearningPipelineWorker>();

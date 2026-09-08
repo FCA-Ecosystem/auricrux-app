@@ -15,6 +15,7 @@ public sealed class BreakthroughLoopStore
     private readonly ConcurrentBag<PhysicalVerificationResult> _verifications = [];
     private readonly ConcurrentBag<ControlRecommendation> _recommendations = [];
     private readonly ConcurrentBag<FieldLessonRecord> _fieldLessons = [];
+    private readonly ConcurrentBag<PedagogyActRecord> _pedagogyActs = [];
 
     public void CacheComparison(HypothesisComparison comparison)
     {
@@ -75,6 +76,23 @@ public sealed class BreakthroughLoopStore
             .Take(Math.Clamp(limit, 1, 100))
             .ToList();
     }
+
+    public void AddPedagogyAct(PedagogyActRecord act) =>
+        _pedagogyActs.Add(act);
+
+    public IReadOnlyList<PedagogyActRecord> ListPedagogyActs(string? projectId, int limit = 20)
+    {
+        var rows = _pedagogyActs.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(projectId))
+        {
+            rows = rows.Where(a => string.Equals(a.ProjectId, projectId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return rows
+            .OrderByDescending(a => a.CreatedAtUtc)
+            .Take(Math.Clamp(limit, 1, 100))
+            .ToList();
+    }
 }
 
 /// <summary>
@@ -105,6 +123,21 @@ public sealed class FieldLessonRecord
     public required string Lesson { get; init; }
     public required string SourceDecisionId { get; init; }
     public string DurableStore { get; init; } = "process-memory";
+    public bool CatalogMatchIsNotSynthesis { get; init; } = true;
+    public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
+}
+
+public sealed class PedagogyActRecord
+{
+    public required string ActId { get; init; }
+    public required string ProjectId { get; init; }
+    public required string Slice { get; init; }
+    public required string Action { get; init; }
+    public required string DecisionId { get; init; }
+    public required string VerificationId { get; init; }
+    public required bool Accepted { get; init; }
+    public required bool MutationApplied { get; init; }
+    public required string Reason { get; init; }
     public bool CatalogMatchIsNotSynthesis { get; init; } = true;
     public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
 }

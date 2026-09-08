@@ -109,6 +109,38 @@ Invoke-SmokeCheck "GET /api/breakthrough/field-lessons (job-derived process memo
     "count=$($r.count) store=$($r.durableStore)"
 }
 
+Invoke-SmokeCheck "POST /api/breakthrough/act (proof-gated, audit only)" {
+    $pour = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/demo/foundation-pour" -Method Post -Body '{}' -ContentType "application/json" -TimeoutSec 60
+    $decisionId = $pour.decisionId
+    $verificationId = $pour.verification.verificationId
+    if (-not $decisionId -or -not $verificationId) { throw "pour demo missing decisionId/verificationId for act" }
+
+    $denyBody = @{
+        action = "hold-strip"
+        slice = "foundation-pour"
+        projectId = "demo-foundation-pour"
+        humanAccepted = $false
+        decisionId = $decisionId
+        verificationId = $verificationId
+    } | ConvertTo-Json
+    $denied = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/act" -Method Post -Body $denyBody -ContentType "application/json" -TimeoutSec 30
+    if ($denied.accepted -eq $true) { throw "act without humanAccepted must be refused" }
+    if ($denied.mutationApplied -eq $true) { throw "refused act must not mutate" }
+
+    $okBody = @{
+        action = "hold-strip"
+        slice = "foundation-pour"
+        projectId = "demo-foundation-pour"
+        humanAccepted = $true
+        decisionId = $decisionId
+        verificationId = $verificationId
+    } | ConvertTo-Json
+    $ok = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/act" -Method Post -Body $okBody -ContentType "application/json" -TimeoutSec 30
+    if ($ok.accepted -ne $true) { throw "proof-gated act with humanAccepted should be accepted: $($ok.reason)" }
+    if ($ok.mutationApplied -ne $false) { throw "pedagogy act must remain audit-only (mutationApplied=false)" }
+    "accepted=$($ok.accepted) mutationApplied=$($ok.mutationApplied) actId=$($ok.actId)"
+}
+
 Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (incomplete prior silences)" {
     $body = '{"includeRequiredPhysics":false,"seedAdditionalVerifications":0}'
     $r = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/demo/foundation-pour" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 60

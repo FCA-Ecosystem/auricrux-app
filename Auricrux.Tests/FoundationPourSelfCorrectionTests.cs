@@ -58,6 +58,17 @@ public sealed class FoundationPourSelfCorrectionTests
         Assert.True(result.PedagogyRecorded);
         Assert.False(string.IsNullOrWhiteSpace(result.PedagogyLessonId));
         Assert.NotEmpty(loop.ListFieldLessons(projectId));
+        Assert.False(result.PedagogyPriorLessonConfirmed);
+
+        var confirmed = await demo.RunAsync(new FoundationPourDemoOptions
+        {
+            SeedAdditionalVerifications = 10,
+            ProjectId = projectId
+        });
+        Assert.True(confirmed.PedagogyPriorLessonConfirmed);
+        Assert.Equal("hold-strip", confirmed.PedagogyProposedAction);
+        Assert.Contains("Prior job lesson confirmed", confirmed.PedagogyLessonTopic, StringComparison.Ordinal);
+        Assert.Contains("Still not unique synthesis", confirmed.PedagogyLesson, StringComparison.Ordinal);
     }
 
     [Fact]

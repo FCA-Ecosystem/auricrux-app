@@ -295,6 +295,70 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
+    public async Task Pedagogy_act_is_proof_gated_and_audit_only()
+    {
+        var projectId = $"nsf-act-{Guid.NewGuid():N}";
+        var demo = await _client.PostAsJsonAsync("/api/breakthrough/demo/foundation-pour", new
+        {
+            projectId,
+            seedAdditionalVerifications = 10
+        });
+        Assert.Equal(HttpStatusCode.OK, demo.StatusCode);
+        using var demoDoc = System.Text.Json.JsonDocument.Parse(await demo.Content.ReadAsStringAsync());
+        var root = demoDoc.RootElement;
+        var decisionId = root.GetProperty("decisionId").GetString();
+        var verificationId = root.GetProperty("verification").GetProperty("verificationId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(decisionId));
+        Assert.False(string.IsNullOrWhiteSpace(verificationId));
+
+        var denied = await _client.PostAsJsonAsync("/api/breakthrough/act", new
+        {
+            action = "hold-strip",
+            slice = "foundation-pour",
+            projectId,
+            humanAccepted = false,
+            decisionId,
+            verificationId
+        });
+        Assert.Equal(HttpStatusCode.OK, denied.StatusCode);
+        using var deniedDoc = System.Text.Json.JsonDocument.Parse(await denied.Content.ReadAsStringAsync());
+        Assert.False(deniedDoc.RootElement.GetProperty("accepted").GetBoolean());
+        Assert.False(deniedDoc.RootElement.GetProperty("mutationApplied").GetBoolean());
+
+        var ungated = await _client.PostAsJsonAsync("/api/breakthrough/act", new
+        {
+            action = "hold-strip",
+            slice = "foundation-pour",
+            projectId,
+            humanAccepted = true
+        });
+        using var ungatedDoc = System.Text.Json.JsonDocument.Parse(await ungated.Content.ReadAsStringAsync());
+        Assert.False(ungatedDoc.RootElement.GetProperty("accepted").GetBoolean());
+
+        var ok = await _client.PostAsJsonAsync("/api/breakthrough/act", new
+        {
+            action = "hold-strip",
+            slice = "foundation-pour",
+            projectId,
+            humanAccepted = true,
+            decisionId,
+            verificationId
+        });
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        using var okDoc = System.Text.Json.JsonDocument.Parse(await ok.Content.ReadAsStringAsync());
+        Assert.True(okDoc.RootElement.GetProperty("accepted").GetBoolean());
+        Assert.False(okDoc.RootElement.GetProperty("mutationApplied").GetBoolean());
+        Assert.Equal("safety", okDoc.RootElement.GetProperty("governanceClass").GetString());
+
+        var acts = await _client.GetAsync($"/api/breakthrough/acts?projectId={projectId}");
+        Assert.Equal(HttpStatusCode.OK, acts.StatusCode);
+        var actsBody = await acts.Content.ReadAsStringAsync();
+        Assert.Contains("hold-strip", actsBody, StringComparison.Ordinal);
+        Assert.Contains("\"mutationApplied\":false", actsBody, StringComparison.Ordinal);
+        Assert.Contains("process-memory", actsBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Pile_demo_closes_nsf_loop()
     {
         var response = await _client.PostAsJsonAsync("/api/breakthrough/demo/driven-pile", new

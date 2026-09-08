@@ -75,6 +75,10 @@
                 <dl class="pour-demo__meta">
                     <div><dt>Proposed act</dt><dd><code>@result.PedagogyProposedAction</code></dd></div>
                     <div><dt>Lesson</dt><dd>@result.PedagogyLessonTopic</dd></div>
+                    @if (result.PedagogyPriorLessonConfirmed)
+                    {
+                        <div><dt>Improve</dt><dd>Prior job lesson confirmed the same act. Still not unique synthesis.</dd></div>
+                    }
                 </dl>
                 <p class="pour-demo__reason">@result.PedagogyLesson</p>
                 @if (result.PedagogyRecorded)

@@ -1,4 +1,5 @@
 using Auricrux.Web.Services.Breakthrough;
+using Auricrux.Web.Services.PhaseII;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Auricrux.Web.Controllers;
@@ -16,6 +17,7 @@ public sealed class BreakthroughController(
     MetaLearningService metaLearningService,
     ProvableReasoningService reasoningService,
     FoundationPourDemoService foundationPourDemo,
+    PedagogyActService pedagogyAct,
     ILogger<BreakthroughController> logger) : ControllerBase
 {
     /// <summary>
@@ -228,6 +230,31 @@ public sealed class BreakthroughController(
             catalogMatchIsNotSynthesis = true,
             count = lessons.Count,
             lessons
+        });
+    }
+
+    /// <summary>
+    /// Proof-gated pour/steel act. Records a process-memory audit. Never mutates PM/finance.
+    /// </summary>
+    [HttpPost("act")]
+    public ActionResult<PedagogyActResult> Act([FromBody] PedagogyActRequest? request)
+        => Ok(pedagogyAct.Execute(request ?? new PedagogyActRequest()));
+
+    /// <summary>
+    /// Process-memory pedagogy acts. Audit only. MutationApplied is always false.
+    /// </summary>
+    [HttpGet("acts")]
+    public ActionResult<object> ListActs([FromQuery] string? projectId, [FromQuery] int limit = 20)
+    {
+        var acts = pedagogyAct.List(projectId, limit);
+        return Ok(new
+        {
+            projectId,
+            durableStore = "process-memory",
+            mutationApplied = false,
+            catalogMatchIsNotSynthesis = true,
+            count = acts.Count,
+            acts
         });
     }
 }

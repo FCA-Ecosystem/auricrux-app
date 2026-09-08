@@ -152,13 +152,15 @@ public sealed class FoundationPourDemoService
         PublishControlRecommendation(options, comparison, chosen, verification, proof);
 
         var loopClosed = verification.RequiresModelCorrection || meta.SystematicErrors.Count > 0;
+        var priorAction = ListFieldLessons(options.ProjectId, 1).FirstOrDefault()?.ProposedAction;
         var pedagogy = ProposePedagogy(
             options,
             incomplete: false,
             incompleteReason: null,
             loopClosed,
             verification.RequiresModelCorrection,
-            comparison.RecommendedApproach);
+            comparison.RecommendedApproach,
+            priorAction);
         var lessonId = RecordPedagogy(options, comparison.DecisionId, pedagogy);
 
         return new FoundationPourDemoResult
@@ -181,6 +183,7 @@ public sealed class FoundationPourDemoService
             PedagogyLessonId = lessonId,
             PedagogyRecorded = lessonId is not null,
             PedagogyDurableStore = lessonId is null ? null : "process-memory",
+            PedagogyPriorLessonConfirmed = pedagogy.PriorLessonConfirmed,
             PriorJobLessons = ListFieldLessons(options.ProjectId),
             Summary = BuildSummary(comparison, verification, meta, proof)
         };
@@ -253,6 +256,7 @@ public sealed class FoundationPourDemoService
             PedagogyLessonId = null,
             PedagogyRecorded = false,
             PedagogyDurableStore = null,
+            PedagogyPriorLessonConfirmed = false,
             PriorJobLessons = ListFieldLessons(options.ProjectId),
             Summary = $"Incomplete prior; {comparison.Hypotheses.Count} hypotheses; field loop silenced. {reason}"
         };
@@ -359,12 +363,13 @@ public sealed class FoundationPourDemoService
         string? incompleteReason,
         bool loopClosed,
         bool requiresCorrection,
-        string recommendedApproach)
+        string recommendedApproach,
+        string? priorProposedAction)
     {
         var steel = RequiredPhysicsInputs.IsSteelDeflectionDecision(options.ConstructionPhase, options.DecisionContext);
         return steel
-            ? PedagogyActuator.FromSteelLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach)
-            : PedagogyActuator.FromPourLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach);
+            ? PedagogyActuator.FromSteelLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach, priorProposedAction)
+            : PedagogyActuator.FromPourLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach, priorProposedAction);
     }
 
     private string? RecordPedagogy(
@@ -472,6 +477,7 @@ public sealed class FoundationPourDemoResult
     public string? PedagogyLessonId { get; init; }
     public bool PedagogyRecorded { get; init; }
     public string? PedagogyDurableStore { get; init; }
+    public bool PedagogyPriorLessonConfirmed { get; init; }
     public IReadOnlyList<FieldLessonRecord> PriorJobLessons { get; init; } = [];
     public required string Summary { get; init; }
 }
