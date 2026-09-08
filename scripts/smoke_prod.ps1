@@ -109,7 +109,7 @@ Invoke-SmokeCheck "GET /api/breakthrough/field-lessons (job-derived process memo
     "count=$($r.count) store=$($r.durableStore)"
 }
 
-Invoke-SmokeCheck "POST /api/breakthrough/act (proof-gated, audit only)" {
+Invoke-SmokeCheck "POST /api/breakthrough/act (proof-gated pour-control hold)" {
     $pour = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/demo/foundation-pour" -Method Post -Body '{}' -ContentType "application/json" -TimeoutSec 60
     $decisionId = $pour.decisionId
     $verificationId = $pour.verification.verificationId
@@ -137,8 +137,14 @@ Invoke-SmokeCheck "POST /api/breakthrough/act (proof-gated, audit only)" {
     } | ConvertTo-Json
     $ok = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/act" -Method Post -Body $okBody -ContentType "application/json" -TimeoutSec 30
     if ($ok.accepted -ne $true) { throw "proof-gated act with humanAccepted should be accepted: $($ok.reason)" }
-    if ($ok.mutationApplied -ne $false) { throw "pedagogy act must remain audit-only (mutationApplied=false)" }
-    "accepted=$($ok.accepted) mutationApplied=$($ok.mutationApplied) actId=$($ok.actId)"
+    if ($ok.pmOrFinanceMutated -eq $true) { throw "pour-control act must not mutate PM/finance" }
+    if ($ok.mutationApplied -ne $true) { throw "hold-strip must apply pour-control mutation" }
+    if ($ok.mutationTarget -ne "pour-control-process-memory") { throw "unexpected mutationTarget $($ok.mutationTarget)" }
+    if ($ok.holdActive -ne $true) { throw "hold-strip must set holdActive" }
+    if ($ok.currentStripDays -le $ok.baselineStripDays) { throw "held strip days must be later than baseline" }
+    $control = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/pour-control?projectId=demo-foundation-pour" -Method Get -TimeoutSec 30
+    if ($control.control.holdActive -ne $true) { throw "GET pour-control must show an active hold" }
+    "accepted=$($ok.accepted) mutationApplied=$($ok.mutationApplied) target=$($ok.mutationTarget) days=$($ok.currentStripDays) actId=$($ok.actId)"
 }
 
 Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (incomplete prior silences)" {

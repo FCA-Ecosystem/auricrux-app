@@ -185,6 +185,7 @@ public sealed class FoundationPourDemoService
             PedagogyDurableStore = lessonId is null ? null : "process-memory",
             PedagogyPriorLessonConfirmed = pedagogy.PriorLessonConfirmed,
             PriorJobLessons = ListFieldLessons(options.ProjectId),
+            PourControl = _loop.EnsurePourControl(options.ProjectId, options.ExpectedStripDays),
             Summary = BuildSummary(comparison, verification, meta, proof)
         };
     }
@@ -258,6 +259,7 @@ public sealed class FoundationPourDemoService
             PedagogyDurableStore = null,
             PedagogyPriorLessonConfirmed = false,
             PriorJobLessons = ListFieldLessons(options.ProjectId),
+            PourControl = _loop.GetPourControl(options.ProjectId),
             Summary = $"Incomplete prior; {comparison.Hypotheses.Count} hypotheses; field loop silenced. {reason}"
         };
     }
@@ -404,6 +406,9 @@ public sealed class FoundationPourDemoService
     public IReadOnlyList<FieldLessonRecord> ListFieldLessons(string? projectId, int limit = 20) =>
         _loop.ListFieldLessons(projectId, limit);
 
+    public PourControlRecord? GetPourControl(string? projectId) =>
+        _loop.GetPourControl(projectId);
+
     private static string BuildSummary(
         HypothesisComparison comparison,
         PhysicalVerificationResult verification,
@@ -479,5 +484,6 @@ public sealed class FoundationPourDemoResult
     public string? PedagogyDurableStore { get; init; }
     public bool PedagogyPriorLessonConfirmed { get; init; }
     public IReadOnlyList<FieldLessonRecord> PriorJobLessons { get; init; } = [];
+    public PourControlRecord? PourControl { get; init; }
     public required string Summary { get; init; }
 }

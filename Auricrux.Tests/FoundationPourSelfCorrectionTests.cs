@@ -69,6 +69,17 @@ public sealed class FoundationPourSelfCorrectionTests
         Assert.Equal("hold-strip", confirmed.PedagogyProposedAction);
         Assert.Contains("Prior job lesson confirmed", confirmed.PedagogyLessonTopic, StringComparison.Ordinal);
         Assert.Contains("Still not unique synthesis", confirmed.PedagogyLesson, StringComparison.Ordinal);
+        Assert.NotNull(result.PourControl);
+        Assert.False(result.PourControl!.HoldActive);
+        Assert.Equal(7, result.PourControl.CurrentStripDays);
+
+        var held = loop.HoldStrip(projectId, "act-hold");
+        Assert.True(held.HoldActive);
+        Assert.Equal(7 + BreakthroughLoopStore.HoldStripExtraDays, held.CurrentStripDays);
+        Assert.True(held.CurrentStripAtUtc > held.PlannedStripAtUtc);
+        Assert.False(held.PmOrFinanceMutated);
+        var again = loop.HoldStrip(projectId, "act-hold-2");
+        Assert.Equal(held.CurrentStripDays, again.CurrentStripDays);
     }
 
     [Fact]

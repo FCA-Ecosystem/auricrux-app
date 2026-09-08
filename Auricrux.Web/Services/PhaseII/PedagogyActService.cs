@@ -4,7 +4,8 @@ using Auricrux.Web.Services.PhaseI;
 namespace Auricrux.Web.Services.PhaseII;
 
 /// <summary>
-/// Proof-gated pour/steel act on the live NSF host. Records an audit in process memory.
+/// Proof-gated pour/steel act on the live NSF host.
+/// hold-strip / proceed-strip mutate Auricrux pour-control process memory only.
 /// Never mutates PM schedule or finance tables.
 /// </summary>
 public sealed class PedagogyActService
@@ -36,6 +37,9 @@ public sealed class PedagogyActService
     public IReadOnlyList<PedagogyActRecord> List(string? projectId, int limit = 20) =>
         _loop.ListPedagogyActs(projectId, limit);
 
+    public PourControlRecord? GetPourControl(string? projectId) =>
+        _loop.GetPourControl(projectId);
+
     public PedagogyActResult Execute(PedagogyActRequest request)
     {
         var slice = (request.Slice ?? "").Trim();
@@ -59,30 +63,70 @@ public sealed class PedagogyActService
             return Refuse(gate.Reason, slice, action);
 
         var id = Guid.NewGuid().ToString("n");
+        var projectId = string.IsNullOrWhiteSpace(request.ProjectId)
+            ? BreakthroughLoopStore.DefaultPourProjectId
+            : request.ProjectId.Trim();
+        PourControlRecord? control = null;
+        var pourMutated = false;
+        if (IsHoldStrip(action, slice))
+        {
+            control = _loop.HoldStrip(projectId, id);
+            pourMutated = true;
+        }
+        else if (IsProceedStrip(action, slice))
+        {
+            control = _loop.ProceedStrip(projectId, id);
+            pourMutated = true;
+        }
+
+        var reason = pourMutated
+            ? "Proof-gated pedagogy act accepted. Auricrux pour-control stripping date updated in process memory. No PM/finance table mutation."
+            : "Proof-gated pedagogy act accepted. Process-memory audit recorded. No PM/finance table mutation.";
+
         _loop.AddPedagogyAct(new PedagogyActRecord
         {
             ActId = id,
-            ProjectId = request.ProjectId ?? "",
+            ProjectId = projectId,
             Slice = slice,
             Action = action,
             DecisionId = request.DecisionId ?? "",
             VerificationId = request.VerificationId ?? "",
             Accepted = true,
-            MutationApplied = false,
-            Reason = "Proof-gated pedagogy act accepted. Process-memory audit recorded. No PM/finance table mutation.",
+            MutationApplied = pourMutated,
+            Reason = reason,
             CatalogMatchIsNotSynthesis = true
         });
 
         return new PedagogyActResult(
             Accepted: true,
-            MutationApplied: false,
+            MutationApplied: pourMutated,
             ActId: id,
             Slice: slice,
             Action: action,
             GovernanceClass: "safety",
-            Reason: "Proof-gated pedagogy act accepted. Process-memory audit recorded. No PM/finance table mutation.",
-            CatalogMatchIsNotSynthesis: true);
+            Reason: reason,
+            CatalogMatchIsNotSynthesis: true,
+            PourControlMutated: pourMutated,
+            MutationTarget: pourMutated ? BreakthroughLoopStore.PourControlMutationTarget : null,
+            PmOrFinanceMutated: false,
+            BaselineStripDays: control?.BaselineStripDays,
+            CurrentStripDays: control?.CurrentStripDays,
+            HoldActive: control?.HoldActive,
+            PlannedStripAtUtc: control?.PlannedStripAtUtc,
+            CurrentStripAtUtc: control?.CurrentStripAtUtc);
     }
+
+    private static bool IsHoldStrip(string action, string slice) =>
+        action.Equals("hold-strip", StringComparison.OrdinalIgnoreCase)
+        || (action.Equals("hold", StringComparison.OrdinalIgnoreCase) && IsPourSlice(slice));
+
+    private static bool IsProceedStrip(string action, string slice) =>
+        action.Equals("proceed-strip", StringComparison.OrdinalIgnoreCase)
+        || (action.Equals("proceed", StringComparison.OrdinalIgnoreCase) && IsPourSlice(slice));
+
+    private static bool IsPourSlice(string slice) =>
+        slice.Equals("foundation-pour", StringComparison.OrdinalIgnoreCase)
+        || slice.Equals("stripping", StringComparison.OrdinalIgnoreCase);
 
     private static PedagogyActResult Refuse(string reason, string slice, string action) =>
         new(
@@ -93,7 +137,10 @@ public sealed class PedagogyActService
             Action: action,
             GovernanceClass: "safety",
             Reason: reason,
-            CatalogMatchIsNotSynthesis: true);
+            CatalogMatchIsNotSynthesis: true,
+            PourControlMutated: false,
+            MutationTarget: null,
+            PmOrFinanceMutated: false);
 }
 
 public sealed class PedagogyActRequest
@@ -116,4 +163,12 @@ public sealed record PedagogyActResult(
     string Action,
     string GovernanceClass,
     string Reason,
-    bool CatalogMatchIsNotSynthesis);
+    bool CatalogMatchIsNotSynthesis,
+    bool PourControlMutated = false,
+    string? MutationTarget = null,
+    bool PmOrFinanceMutated = false,
+    int? BaselineStripDays = null,
+    int? CurrentStripDays = null,
+    bool? HoldActive = null,
+    DateTime? PlannedStripAtUtc = null,
+    DateTime? CurrentStripAtUtc = null);

@@ -295,7 +295,7 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
-    public async Task Pedagogy_act_is_proof_gated_and_audit_only()
+    public async Task Pedagogy_act_holds_pour_control_stripping_date()
     {
         var projectId = $"nsf-act-{Guid.NewGuid():N}";
         var demo = await _client.PostAsJsonAsync("/api/breakthrough/demo/foundation-pour", new
@@ -347,15 +347,26 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         using var okDoc = System.Text.Json.JsonDocument.Parse(await ok.Content.ReadAsStringAsync());
         Assert.True(okDoc.RootElement.GetProperty("accepted").GetBoolean());
-        Assert.False(okDoc.RootElement.GetProperty("mutationApplied").GetBoolean());
+        Assert.True(okDoc.RootElement.GetProperty("mutationApplied").GetBoolean());
+        Assert.True(okDoc.RootElement.GetProperty("pourControlMutated").GetBoolean());
+        Assert.False(okDoc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+        Assert.Equal("pour-control-process-memory", okDoc.RootElement.GetProperty("mutationTarget").GetString());
+        Assert.True(okDoc.RootElement.GetProperty("holdActive").GetBoolean());
+        Assert.True(okDoc.RootElement.GetProperty("currentStripDays").GetInt32() >
+                    okDoc.RootElement.GetProperty("baselineStripDays").GetInt32());
         Assert.Equal("safety", okDoc.RootElement.GetProperty("governanceClass").GetString());
 
         var acts = await _client.GetAsync($"/api/breakthrough/acts?projectId={projectId}");
         Assert.Equal(HttpStatusCode.OK, acts.StatusCode);
         var actsBody = await acts.Content.ReadAsStringAsync();
         Assert.Contains("hold-strip", actsBody, StringComparison.Ordinal);
-        Assert.Contains("\"mutationApplied\":false", actsBody, StringComparison.Ordinal);
         Assert.Contains("process-memory", actsBody, StringComparison.Ordinal);
+
+        var control = await _client.GetAsync($"/api/breakthrough/pour-control?projectId={projectId}");
+        Assert.Equal(HttpStatusCode.OK, control.StatusCode);
+        using var controlDoc = System.Text.Json.JsonDocument.Parse(await control.Content.ReadAsStringAsync());
+        Assert.True(controlDoc.RootElement.GetProperty("control").GetProperty("holdActive").GetBoolean());
+        Assert.False(controlDoc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
     }
 
     [Fact]

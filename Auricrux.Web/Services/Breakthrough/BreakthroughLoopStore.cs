@@ -16,6 +16,11 @@ public sealed class BreakthroughLoopStore
     private readonly ConcurrentBag<ControlRecommendation> _recommendations = [];
     private readonly ConcurrentBag<FieldLessonRecord> _fieldLessons = [];
     private readonly ConcurrentBag<PedagogyActRecord> _pedagogyActs = [];
+    private readonly ConcurrentDictionary<string, PourControlRecord> _pourControls = new(StringComparer.OrdinalIgnoreCase);
+
+    public const int HoldStripExtraDays = 3;
+    public const string PourControlMutationTarget = "pour-control-process-memory";
+    public const string DefaultPourProjectId = "demo-foundation-pour";
 
     public void CacheComparison(HypothesisComparison comparison)
     {
@@ -93,6 +98,43 @@ public sealed class BreakthroughLoopStore
             .Take(Math.Clamp(limit, 1, 100))
             .ToList();
     }
+
+    public PourControlRecord? GetPourControl(string? projectId)
+    {
+        var key = NormalizeProjectId(projectId);
+        return _pourControls.TryGetValue(key, out var row) ? row : null;
+    }
+
+    public PourControlRecord EnsurePourControl(string? projectId, int baselineStripDays)
+    {
+        var key = NormalizeProjectId(projectId);
+        var baseline = Math.Clamp(baselineStripDays, 1, 90);
+        return _pourControls.AddOrUpdate(
+            key,
+            _ => PourControlRecord.Create(key, baseline, hold: false, actId: null),
+            (_, existing) => existing);
+    }
+
+    public PourControlRecord HoldStrip(string? projectId, string actId)
+    {
+        var key = NormalizeProjectId(projectId);
+        return _pourControls.AddOrUpdate(
+            key,
+            _ => PourControlRecord.Create(key, 7, hold: true, actId),
+            (_, existing) => existing.WithHold(actId));
+    }
+
+    public PourControlRecord ProceedStrip(string? projectId, string actId)
+    {
+        var key = NormalizeProjectId(projectId);
+        return _pourControls.AddOrUpdate(
+            key,
+            _ => PourControlRecord.Create(key, 7, hold: false, actId),
+            (_, existing) => existing.WithProceed(actId));
+    }
+
+    private static string NormalizeProjectId(string? projectId) =>
+        string.IsNullOrWhiteSpace(projectId) ? DefaultPourProjectId : projectId.Trim();
 }
 
 /// <summary>
@@ -140,4 +182,65 @@ public sealed class PedagogyActRecord
     public required string Reason { get; init; }
     public bool CatalogMatchIsNotSynthesis { get; init; } = true;
     public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Auricrux-owned pour stripping control. Not a PM schedule row and not a finance table.
+/// A proof-gated hold-strip moves CurrentStripAtUtc; Atlas is not required.
+/// </summary>
+public sealed record PourControlRecord
+{
+    public required string ProjectId { get; init; }
+    public required int BaselineStripDays { get; init; }
+    public required int CurrentStripDays { get; init; }
+    public required bool HoldActive { get; init; }
+    public required DateTime PourAtUtc { get; init; }
+    public required DateTime PlannedStripAtUtc { get; init; }
+    public required DateTime CurrentStripAtUtc { get; init; }
+    public string MutationTarget { get; init; } = BreakthroughLoopStore.PourControlMutationTarget;
+    public bool PmOrFinanceMutated { get; init; }
+    public string? LastActId { get; init; }
+    public DateTime UpdatedAtUtc { get; init; } = DateTime.UtcNow;
+
+    public static PourControlRecord Create(string projectId, int baselineDays, bool hold, string? actId)
+    {
+        var pourAt = DateTime.UtcNow;
+        var current = hold ? baselineDays + BreakthroughLoopStore.HoldStripExtraDays : baselineDays;
+        return new PourControlRecord
+        {
+            ProjectId = projectId,
+            BaselineStripDays = baselineDays,
+            CurrentStripDays = current,
+            HoldActive = hold,
+            PourAtUtc = pourAt,
+            PlannedStripAtUtc = pourAt.AddDays(baselineDays),
+            CurrentStripAtUtc = pourAt.AddDays(current),
+            LastActId = actId,
+            PmOrFinanceMutated = false,
+            UpdatedAtUtc = pourAt
+        };
+    }
+
+    public PourControlRecord WithHold(string actId)
+    {
+        var current = BaselineStripDays + BreakthroughLoopStore.HoldStripExtraDays;
+        return this with
+        {
+            CurrentStripDays = current,
+            HoldActive = true,
+            CurrentStripAtUtc = PourAtUtc.AddDays(current),
+            LastActId = actId,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+    }
+
+    public PourControlRecord WithProceed(string actId) =>
+        this with
+        {
+            CurrentStripDays = BaselineStripDays,
+            HoldActive = false,
+            CurrentStripAtUtc = PourAtUtc.AddDays(BaselineStripDays),
+            LastActId = actId,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
 }

@@ -79,6 +79,16 @@
                     {
                         <div><dt>Improve</dt><dd>Prior job lesson confirmed the same act. Still not unique synthesis.</dd></div>
                     }
+                    @if (result.PourControl is not null)
+                    {
+                        <div><dt>Pour control</dt>
+                            <dd>
+                                Strip day @result.PourControl.CurrentStripDays (baseline @result.PourControl.BaselineStripDays).
+                                @(result.PourControl.HoldActive ? "Hold active." : "Not held.")
+                                Not a PM schedule row.
+                            </dd>
+                        </div>
+                    }
                 </dl>
                 <p class="pour-demo__reason">@result.PedagogyLesson</p>
                 @if (result.PedagogyRecorded)

@@ -241,7 +241,7 @@ public sealed class BreakthroughController(
         => Ok(pedagogyAct.Execute(request ?? new PedagogyActRequest()));
 
     /// <summary>
-    /// Process-memory pedagogy acts. Audit only. MutationApplied is always false.
+    /// Process-memory pedagogy acts. Pour-control mutations are not PM/finance mutations.
     /// </summary>
     [HttpGet("acts")]
     public ActionResult<object> ListActs([FromQuery] string? projectId, [FromQuery] int limit = 20)
@@ -251,10 +251,29 @@ public sealed class BreakthroughController(
         {
             projectId,
             durableStore = "process-memory",
-            mutationApplied = false,
+            pmOrFinanceMutated = false,
             catalogMatchIsNotSynthesis = true,
             count = acts.Count,
             acts
+        });
+    }
+
+    /// <summary>
+    /// Auricrux pour-control stripping date. Not a PM schedule row.
+    /// </summary>
+    [HttpGet("pour-control")]
+    public ActionResult<object> GetPourControl([FromQuery] string? projectId)
+    {
+        var control = pedagogyAct.GetPourControl(projectId);
+        return Ok(new
+        {
+            projectId = string.IsNullOrWhiteSpace(projectId)
+                ? BreakthroughLoopStore.DefaultPourProjectId
+                : projectId,
+            durableStore = "process-memory",
+            mutationTarget = BreakthroughLoopStore.PourControlMutationTarget,
+            pmOrFinanceMutated = false,
+            control
         });
     }
 }
