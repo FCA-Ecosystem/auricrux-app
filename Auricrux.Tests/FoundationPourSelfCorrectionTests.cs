@@ -11,29 +11,33 @@ namespace Auricrux.Tests;
 /// </summary>
 public sealed class FoundationPourSelfCorrectionTests
 {
-    private static FoundationPourDemoService CreateDemoService()
+    private static (FoundationPourDemoService Demo, BreakthroughLoopStore Loop) CreateDemoService()
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection().Build();
         var atlas = new AtlasService(config, NullLogger<AtlasService>.Instance);
-        var hypotheses = new HypothesisEngine(atlas, NullLogger<HypothesisEngine>.Instance);
-        var verification = new PhysicalVerificationService(atlas, hypotheses, NullLogger<PhysicalVerificationService>.Instance);
+        var loop = new BreakthroughLoopStore();
+        var hypotheses = new HypothesisEngine(atlas, NullLogger<HypothesisEngine>.Instance, loop);
+        var verification = new PhysicalVerificationService(atlas, hypotheses, NullLogger<PhysicalVerificationService>.Instance, loop);
         var meta = new MetaLearningService(atlas, verification, NullLogger<MetaLearningService>.Instance);
-        var reasoning = new ProvableReasoningService(atlas, NullLogger<ProvableReasoningService>.Instance);
-        return new FoundationPourDemoService(hypotheses, verification, meta, reasoning, NullLogger<FoundationPourDemoService>.Instance);
+        var reasoning = new ProvableReasoningService(atlas, NullLogger<ProvableReasoningService>.Instance, loop);
+        var demo = new FoundationPourDemoService(hypotheses, verification, meta, reasoning, NullLogger<FoundationPourDemoService>.Instance, loop);
+        return (demo, loop);
     }
 
     [Fact]
     public async Task FoundationPourDemo_ClosesSelfCorrectionLoop_WithoutAtlas()
     {
-        var demo = CreateDemoService();
+        var (demo, loop) = CreateDemoService();
+        var projectId = $"test-pour-{Guid.NewGuid():N}";
 
         var result = await demo.RunAsync(new FoundationPourDemoOptions
         {
             SeedAdditionalVerifications = 10,
-            ProjectId = $"test-pour-{Guid.NewGuid():N}"
+            ProjectId = projectId
         });
 
-        Assert.Equal(3, result.Hypotheses.Count);
+        Assert.Equal(4, result.Hypotheses.Count);
+        Assert.Contains(result.Hypotheses, h => h.Approach.Contains("Hot-Weather", StringComparison.Ordinal));
         Assert.False(string.IsNullOrWhiteSpace(result.RecommendedApproach));
         Assert.False(string.IsNullOrWhiteSpace(result.ChosenHypothesisId));
         Assert.True(result.Verification.AccuracyScore < 1.0);
@@ -47,6 +51,7 @@ public sealed class FoundationPourSelfCorrectionTests
         Assert.False(string.IsNullOrWhiteSpace(result.Verification.CorrectionRationale));
         Assert.NotEmpty(result.Proof.ProofSteps);
         Assert.NotEmpty(result.Proof.CitedStandards);
+        Assert.NotEmpty(loop.ListControlRecommendations(projectId));
     }
 
     [Fact]

@@ -30,7 +30,10 @@ public static class FoundationPourPhysics
         ColdWeatherProtected,
 
         /// <summary>Type III / accelerated mix for a fast form cycle.</summary>
-        AcceleratedHighEarly
+        AcceleratedHighEarly,
+
+        /// <summary>Fogging, sunshades, and cooled mix per ACI 305R hot-weather concreting.</summary>
+        HotWeatherProtected
     }
 
     public sealed record PourPrediction(
@@ -41,6 +44,7 @@ public static class FoundationPourPhysics
         double ColdJointRiskPercent,
         double EffectiveCureTempF,
         bool ColdProtectionRequired,
+        bool HotWeatherProtectionRequired,
         double EvaporationRateLbPerSqFtPerHour);
 
     /// <summary>
@@ -67,6 +71,9 @@ public static class FoundationPourPhysics
             minTempF: ambientTempF - 6,
             hoursBelow50F: ambientTempF < 50 ? 14 : 0);
 
+        var evaporation = WeatherPhysicsModel.EstimateEvaporationRate(ambientTempF, relativeHumidity, windSpeedMph);
+        var hotWeatherProtectionRequired = RequiresHotWeatherProtection(ambientTempF, evaporation);
+
         // Protected pours hold concrete at the ACI 306R minimum placement temperature.
         var effectiveCureTempF = ambientTempF;
         if (strategy == PourStrategy.ColdWeatherProtected)
@@ -74,13 +81,19 @@ public static class FoundationPourPhysics
             var (minTempF, maxTempF) = WeatherPhysicsModel.ColdWeatherPlacementTemp(slabThicknessIn, ambientTempF);
             effectiveCureTempF = Math.Clamp(Math.Max(ambientTempF, minTempF), minTempF, maxTempF);
         }
+        else if (strategy == PourStrategy.HotWeatherProtected)
+        {
+            // Sunshades and cooled mix lower the surface/placement temperature (ACI 305R).
+            // Floor the cooler target at 68°F only when ambient is already that warm.
+            var cooled = ambientTempF - 8;
+            effectiveCureTempF = Math.Clamp(cooled, Math.Min(68, ambientTempF), ambientTempF);
+            evaporation *= 0.40;
+        }
 
         var maturityFactor = MaturityFactor(effectiveCureTempF);
 
         var strength7 = StrengthAtCalendarAge(targetPsi, 7, cementType, curing, maturityFactor);
         var strength28 = StrengthAtCalendarAge(targetPsi, 28, cementType, curing, maturityFactor);
-
-        var evaporation = WeatherPhysicsModel.EstimateEvaporationRate(ambientTempF, relativeHumidity, windSpeedMph);
 
         return new PourPrediction(
             Strength7dPsi: Math.Round(strength7),
@@ -91,8 +104,13 @@ public static class FoundationPourPhysics
                 ColdJointRisk(strategy, evaporation, coldProtectionRequired), 1),
             EffectiveCureTempF: Math.Round(effectiveCureTempF, 1),
             ColdProtectionRequired: coldProtectionRequired,
+            HotWeatherProtectionRequired: hotWeatherProtectionRequired,
             EvaporationRateLbPerSqFtPerHour: Math.Round(evaporation, 3));
     }
+
+    /// <summary>ACI 305R planning trigger: hot ambient or high evaporation.</summary>
+    public static bool RequiresHotWeatherProtection(double ambientTempF, double evaporationRate) =>
+        ambientTempF >= 80 || evaporationRate >= HighEvaporationThreshold;
 
     /// <summary>
     /// Nurse-Saul style temperature scaling relative to the 68°F reference cure.
@@ -125,6 +143,7 @@ public static class FoundationPourPhysics
     {
         PourStrategy.ColdWeatherProtected => 3.5,
         PourStrategy.AcceleratedHighEarly => 5.0,
+        PourStrategy.HotWeatherProtected => 5.25,
         _ => 4.0
     };
 
@@ -169,6 +188,12 @@ public static class FoundationPourPhysics
         {
             // Fast set shortens the safe placement window between loads.
             risk += 5.0;
+        }
+
+        if (strategy == PourStrategy.HotWeatherProtected)
+        {
+            // Fogging and shades cut the plastic-shrinkage window (ACI 305R).
+            risk -= 8.0;
         }
 
         return Math.Clamp(risk, 2.0, 45.0);

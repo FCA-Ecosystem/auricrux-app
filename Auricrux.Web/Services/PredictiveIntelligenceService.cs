@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Auricrux.Shared.FcaDomain;
+using Auricrux.Web.Services.Breakthrough;
 using MongoDB.Bson;
 using MongoDB.Driver;
 
@@ -22,6 +23,7 @@ public class PredictiveIntelligenceService
     private readonly FcaEcosystemApiService _fca;
     private readonly LearningRecommendationService _recommendations;
     private readonly AuditTrailService _audit;
+    private readonly BreakthroughLoopStore _loop;
     private readonly ILogger<PredictiveIntelligenceService> _logger;
     private static readonly ConcurrentBag<BsonDocument> MemoryPredictiveRecommendations = [];
 
@@ -30,12 +32,14 @@ public class PredictiveIntelligenceService
         FcaEcosystemApiService fca,
         LearningRecommendationService recommendations,
         AuditTrailService audit,
-        ILogger<PredictiveIntelligenceService> logger)
+        ILogger<PredictiveIntelligenceService> logger,
+        BreakthroughLoopStore? loopStore = null)
     {
         _atlas = atlas;
         _fca = fca;
         _recommendations = recommendations;
         _audit = audit;
+        _loop = loopStore ?? new BreakthroughLoopStore();
         _logger = logger;
     }
 
@@ -402,9 +406,27 @@ public class PredictiveIntelligenceService
         string projectId,
         CancellationToken ct = default)
     {
+        var fromLoop = _loop.ListControlRecommendations(projectId)
+            .Select(r => new PredictiveRecommendationRecord
+            {
+                RecommendationId = r.RecommendationId,
+                ProjectId = r.ProjectId,
+                Title = r.Title,
+                Description = r.Description,
+                PredictedTimeframe = r.Timeframe,
+                SimilarityScore = 1.0,
+                EngagementStatus = "from_breakthrough_loop",
+                SourceOutcomeId = r.SourceDecisionId
+            })
+            .ToList();
+
         var fromMemory = MemoryPredictiveRecommendations
             .Where(d => d.GetValue("project_id", "").AsString == projectId)
             .Select(MapPredictiveRecommendation)
+            .ToList();
+
+        fromMemory = fromLoop
+            .Concat(fromMemory.Where(m => fromLoop.All(l => l.RecommendationId != m.RecommendationId)))
             .ToList();
 
         if (!_atlas.IsConfigured)

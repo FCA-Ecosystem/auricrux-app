@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Auricrux.Web.Services;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
@@ -30,16 +29,18 @@ public sealed class PhysicalVerificationService
 {
     private readonly AtlasService _atlas;
     private readonly HypothesisEngine _hypothesisEngine;
+    private readonly BreakthroughLoopStore _loop;
     private readonly ILogger<PhysicalVerificationService> _logger;
-    private static readonly ConcurrentBag<PhysicalVerificationResult> MemoryVerifications = [];
 
     public PhysicalVerificationService(
         AtlasService atlas,
         HypothesisEngine hypothesisEngine,
-        ILogger<PhysicalVerificationService> logger)
+        ILogger<PhysicalVerificationService> logger,
+        BreakthroughLoopStore? loopStore = null)
     {
         _atlas = atlas;
         _hypothesisEngine = hypothesisEngine;
+        _loop = loopStore ?? new BreakthroughLoopStore();
         _logger = logger;
     }
 
@@ -99,7 +100,7 @@ public sealed class PhysicalVerificationService
         };
 
         // Persist verification
-        MemoryVerifications.Add(result);
+        _loop.AddVerification(result);
         if (_atlas.IsConfigured)
         {
             await PersistVerificationAsync(result, hypothesis, ct);
@@ -124,10 +125,7 @@ public sealed class PhysicalVerificationService
         CancellationToken ct = default)
     {
         var cutoff = DateTime.UtcNow.Subtract(period);
-        var fromMemory = MemoryVerifications
-            .Where(v => v.VerifiedAt >= cutoff)
-            .OrderByDescending(v => v.VerifiedAt)
-            .ToList();
+        var fromMemory = _loop.ListVerifications(cutoff).ToList();
 
         if (!_atlas.IsConfigured) return fromMemory;
 

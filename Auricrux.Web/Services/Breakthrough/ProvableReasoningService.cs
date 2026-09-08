@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Auricrux.Web.Services;
 using Auricrux.Web.Services.Breakthrough.Physics;
 using Microsoft.Extensions.Logging;
@@ -32,12 +31,13 @@ namespace Auricrux.Web.Services.Breakthrough;
 public sealed class ProvableReasoningService
 {
     private readonly AtlasService _atlas;
+    private readonly BreakthroughLoopStore _loop;
     private readonly ILogger<ProvableReasoningService> _logger;
-    private static readonly ConcurrentDictionary<string, ProvableReasoningResult> MemoryByProofId = new();
 
-    public ProvableReasoningService(AtlasService atlas, ILogger<ProvableReasoningService> logger)
+    public ProvableReasoningService(AtlasService atlas, ILogger<ProvableReasoningService> logger, BreakthroughLoopStore? loopStore = null)
     {
         _atlas = atlas;
+        _loop = loopStore ?? new BreakthroughLoopStore();
         _logger = logger;
     }
 
@@ -84,7 +84,7 @@ public sealed class ProvableReasoningService
             GeneratedAt = DateTime.UtcNow
         };
 
-        MemoryByProofId[proofId] = result;
+        _loop.CacheProof(proofId, result);
 
         // Persist proof
         if (_atlas.IsConfigured)
@@ -100,7 +100,7 @@ public sealed class ProvableReasoningService
     /// </summary>
     public async Task<ProvableReasoningResult?> GetProofAsync(string proofId, CancellationToken ct = default)
     {
-        if (MemoryByProofId.TryGetValue(proofId, out var cached))
+        if (_loop.FindProof(proofId) is { } cached)
             return cached;
 
         if (!_atlas.IsConfigured) return null;

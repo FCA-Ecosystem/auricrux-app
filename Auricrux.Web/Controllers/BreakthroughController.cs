@@ -199,6 +199,20 @@ public sealed class BreakthroughController(
         var result = await foundationPourDemo.RunAsync(null, cancellationToken);
         return Ok(result);
     }
+
+    /// <summary>NSF loop for pile / footing / shaft selection (same hypothesis → verify → proof cycle).</summary>
+    [HttpPost("demo/driven-pile")]
+    public async Task<ActionResult<FoundationPourDemoResult>> RunPileDemo(
+        [FromBody] FoundationPourDemoOptions? options,
+        CancellationToken cancellationToken)
+        => Ok(await foundationPourDemo.RunPileAsync(options, cancellationToken));
+
+    /// <summary>NSF loop for structural steel deflection-checked hypotheses.</summary>
+    [HttpPost("demo/structural-steel")]
+    public async Task<ActionResult<FoundationPourDemoResult>> RunStructuralDemo(
+        [FromBody] FoundationPourDemoOptions? options,
+        CancellationToken cancellationToken)
+        => Ok(await foundationPourDemo.RunStructuralAsync(options, cancellationToken));
 }
 
 /// <summary>Request to generate competing hypotheses for a decision.</summary>

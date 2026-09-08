@@ -55,6 +55,7 @@ builder.Services.AddSingleton<MediaGenerationService>();
 
 // Phase 9A: FCA Ecosystem integration + Predictive Intelligence (Breakthrough)
 builder.Services.AddSingleton<FcaEcosystemApiService>();
+builder.Services.AddSingleton<BreakthroughLoopStore>();
 builder.Services.AddSingleton<PredictiveIntelligenceService>();
 builder.Services.AddSingleton<AcademyLessonMatcherService>();
 

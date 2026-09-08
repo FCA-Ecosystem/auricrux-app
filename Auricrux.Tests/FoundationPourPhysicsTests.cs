@@ -160,6 +160,44 @@ public sealed class FoundationPourPhysicsTests
 
         Assert.True(windyDry.EvaporationRateLbPerSqFtPerHour > calm.EvaporationRateLbPerSqFtPerHour);
         Assert.True(windyDry.ColdJointRiskPercent > calm.ColdJointRiskPercent);
+        Assert.True(windyDry.HotWeatherProtectionRequired);
+    }
+
+    [Fact]
+    public void HotWeatherProtection_CutsEvaporation_AndLowersJointRisk()
+    {
+        var unprotected = FoundationPourPhysics.Predict(
+            FoundationPourPhysics.PourStrategy.StandardAmbient,
+            targetPsi: 4000,
+            ambientTempF: 95,
+            slabThicknessIn: 8,
+            relativeHumidity: 0.15,
+            windSpeedMph: 20);
+
+        var protectedPour = FoundationPourPhysics.Predict(
+            FoundationPourPhysics.PourStrategy.HotWeatherProtected,
+            targetPsi: 4000,
+            ambientTempF: 95,
+            slabThicknessIn: 8,
+            relativeHumidity: 0.15,
+            windSpeedMph: 20);
+
+        Assert.True(protectedPour.EvaporationRateLbPerSqFtPerHour < unprotected.EvaporationRateLbPerSqFtPerHour);
+        Assert.True(protectedPour.ColdJointRiskPercent < unprotected.ColdJointRiskPercent);
+        Assert.True(protectedPour.EffectiveCureTempF < unprotected.EffectiveCureTempF);
+        Assert.True(unprotected.HotWeatherProtectionRequired);
+    }
+
+    [Fact]
+    public void HotWeatherProtection_DoesNotThrow_WhenAmbientIsAlreadyCool()
+    {
+        var cool = FoundationPourPhysics.Predict(
+            FoundationPourPhysics.PourStrategy.HotWeatherProtected,
+            targetPsi: 4000,
+            ambientTempF: 42,
+            slabThicknessIn: 8);
+
+        Assert.Equal(42, cool.EffectiveCureTempF, 1);
     }
 }
 

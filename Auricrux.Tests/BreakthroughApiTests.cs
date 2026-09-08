@@ -262,6 +262,46 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
         });
     }
 
+    [Fact]
+    public async Task Pour_demo_includes_hot_weather_strategy_and_writes_control_recommendations()
+    {
+        var projectId = $"nsf-pour-{Guid.NewGuid():N}";
+        var demo = await _client.PostAsJsonAsync("/api/breakthrough/demo/foundation-pour", new
+        {
+            projectId,
+            targetPsi = 4000,
+            ambientTempF = 95,
+            slabThicknessIn = 8,
+            relativeHumidity = 0.2,
+            windSpeedMph = 18,
+            seedAdditionalVerifications = 10
+        });
+        Assert.Equal(HttpStatusCode.OK, demo.StatusCode);
+        var body = await demo.Content.ReadAsStringAsync();
+        Assert.Contains("Hot-Weather", body, StringComparison.Ordinal);
+
+        var recs = await _client.GetAsync($"/api/predictive/recommendations/{projectId}");
+        Assert.Equal(HttpStatusCode.OK, recs.StatusCode);
+        var recBody = await recs.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("implementation in progress", recBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("from_breakthrough_loop", recBody);
+    }
+
+    [Fact]
+    public async Task Pile_demo_closes_nsf_loop()
+    {
+        var response = await _client.PostAsJsonAsync("/api/breakthrough/demo/driven-pile", new
+        {
+            projectId = $"pile-{Guid.NewGuid():N}",
+            pileLengthFt = 40,
+            seedAdditionalVerifications = 10
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("load_capacity_tons", body);
+        Assert.Contains("loopClosed", body, StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class BreakthroughActivityPayload
     {
         public string Persistence { get; set; } = "";

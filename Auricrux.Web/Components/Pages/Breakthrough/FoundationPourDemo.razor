@@ -11,10 +11,15 @@
         <p class="pour-demo__brand">Auricrux</p>
         <h1>Foundation pour self-correction</h1>
         <p class="pour-demo__lede">
-            Competing pour hypotheses → field verification → meta-learning → provable reasoning.
-            Works without Atlas (in-process cache).
+            Competing pour hypotheses (ACI 209R / 306R / 305R) → field verification → meta-learning → provable reasoning.
+            Operator inputs change the physics. Works without Atlas (in-process loop store).
         </p>
         <div class="pour-demo__actions">
+            <label>Target psi <input type="number" @bind="targetPsi" min="2500" max="8000" step="100" /></label>
+            <label>Ambient °F <input type="number" @bind="ambientTempF" min="0" max="120" step="1" /></label>
+            <label>Thickness in <input type="number" @bind="slabThicknessIn" min="4" max="48" step="0.5" /></label>
+            <label>RH (0–1) <input type="number" @bind="relativeHumidity" min="0.05" max="1" step="0.05" /></label>
+            <label>Wind mph <input type="number" @bind="windSpeedMph" min="0" max="40" step="1" /></label>
             <button class="pour-demo__run" disabled="@running" @onclick="RunDemoAsync">
                 @(running ? "Running loop…" : "Run self-correction loop")
             </button>
@@ -191,6 +196,11 @@
     private FoundationPourDemoResult? result;
     private string? error;
     private bool running;
+    private double targetPsi = 4000;
+    private double ambientTempF = 42;
+    private double slabThicknessIn = 8;
+    private double relativeHumidity = 0.55;
+    private double windSpeedMph = 8;
 
     private async Task RunDemoAsync()
     {
@@ -201,7 +211,14 @@
         {
             result = await DemoService.RunAsync(new FoundationPourDemoOptions
             {
-                ProjectId = $"web-pour-{Guid.NewGuid():N}"
+                ProjectId = $"web-pour-{Guid.NewGuid():N}",
+                TargetPsi = targetPsi,
+                AmbientTempF = ambientTempF,
+                SlabThicknessIn = slabThicknessIn,
+                RelativeHumidity = relativeHumidity,
+                WindSpeedMph = windSpeedMph,
+                DecisionContext =
+                    $"Foundation pour for {slabThicknessIn:0.#}-inch slab, {targetPsi:0} PSI, ambient {ambientTempF:0.#}°F, RH {relativeHumidity:P0}, wind {windSpeedMph:0.#} mph."
             });
         }
         catch (Exception ex)

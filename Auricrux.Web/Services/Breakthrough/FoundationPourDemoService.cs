@@ -14,6 +14,7 @@ public sealed class FoundationPourDemoService
     private readonly PhysicalVerificationService _verificationService;
     private readonly MetaLearningService _metaLearningService;
     private readonly ProvableReasoningService _reasoningService;
+    private readonly BreakthroughLoopStore _loop;
     private readonly ILogger<FoundationPourDemoService> _logger;
 
     public FoundationPourDemoService(
@@ -21,12 +22,14 @@ public sealed class FoundationPourDemoService
         PhysicalVerificationService verificationService,
         MetaLearningService metaLearningService,
         ProvableReasoningService reasoningService,
-        ILogger<FoundationPourDemoService> logger)
+        ILogger<FoundationPourDemoService> logger,
+        BreakthroughLoopStore? loopStore = null)
     {
         _hypothesisEngine = hypothesisEngine;
         _verificationService = verificationService;
         _metaLearningService = metaLearningService;
         _reasoningService = reasoningService;
+        _loop = loopStore ?? new BreakthroughLoopStore();
         _logger = logger;
     }
 
@@ -41,7 +44,11 @@ public sealed class FoundationPourDemoService
         {
             ["target_psi"] = options.TargetPsi,
             ["ambient_temp_f"] = options.AmbientTempF,
-            ["slab_thickness_in"] = options.SlabThicknessIn
+            ["slab_thickness_in"] = options.SlabThicknessIn,
+            ["relative_humidity"] = options.RelativeHumidity,
+            ["wind_speed_mph"] = options.WindSpeedMph,
+            ["pile_length_ft"] = options.PileLengthFt,
+            ["span_ft"] = options.SpanFt
         };
 
         // 1. Competing hypotheses for the pour decision
@@ -99,9 +106,11 @@ public sealed class FoundationPourDemoService
                 ["slab_thickness_in"] = options.SlabThicknessIn,
                 ["required_strip_psi"] = options.TargetPsi * 0.7
             },
-            ["ACI 318", "ACI 301", "ACI 306"],
-            designIntent: "Foundation slab pour — self-correction demo",
+            ["ACI 318", "ACI 301", "ACI 306", "ACI 305R"],
+            designIntent: options.DesignIntent ?? "Foundation slab pour — self-correction demo",
             ct: ct);
+
+        PublishControlRecommendation(options, comparison, chosen, verification, proof);
 
         return new FoundationPourDemoResult
         {
@@ -148,6 +157,72 @@ public sealed class FoundationPourDemoService
         return actual;
     }
 
+    private void PublishControlRecommendation(
+        FoundationPourDemoOptions options,
+        HypothesisComparison comparison,
+        ConstructionHypothesis chosen,
+        PhysicalVerificationResult verification,
+        ProvableReasoningResult proof)
+    {
+        var projectId = options.ProjectId;
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            return;
+        }
+
+        chosen.QuantitativePredictions.TryGetValue("cure_days_to_stripping", out var stripDays);
+        var title = verification.RequiresModelCorrection
+            ? "Hold field action until the physics catch the cylinders"
+            : $"Proceed with {comparison.RecommendedApproach}";
+
+        _loop.AddControlRecommendation(new ControlRecommendation
+        {
+            RecommendationId = Guid.NewGuid().ToString(),
+            ProjectId = projectId,
+            Title = title,
+            Description = $"{proof.Conclusion} Field accuracy {verification.AccuracyScore:P0}. {verification.CorrectionRationale}",
+            Timeframe = stripDays > 0 ? $"strip ~{stripDays:0} calendar days" : "before next critical activity",
+            SourceDecisionId = comparison.DecisionId
+        });
+    }
+
+    public Task<FoundationPourDemoResult> RunPileAsync(
+        FoundationPourDemoOptions? options = null,
+        CancellationToken ct = default)
+    {
+        options ??= new FoundationPourDemoOptions();
+        return RunAsync(options with
+        {
+            ScenarioName = options.ScenarioName == "Winter Foundation Pour — Self-Correction Loop"
+                ? "Driven pile vs shaft vs footing — self-correction"
+                : options.ScenarioName,
+            DecisionContext = "Select foundation system: driven pile, drilled shaft, or improved spread footing.",
+            ConstructionPhase = "foundation",
+            ModelId = "auricrux-foundation-pile",
+            EngineeringQuestion = options.EngineeringQuestion
+                ?? $"Does a {options.PileLengthFt:0.#} ft driven pile have higher Meyerhof capacity than a 20 ft pile in the same soil?",
+            DesignIntent = "Foundation system selection — NSF cognitive loop",
+            ExpectedStripDays = options.ExpectedStripDays
+        }, ct);
+    }
+
+    public Task<FoundationPourDemoResult> RunStructuralAsync(
+        FoundationPourDemoOptions? options = null,
+        CancellationToken ct = default)
+    {
+        options ??= new FoundationPourDemoOptions();
+        return RunAsync(options with
+        {
+            ScenarioName = "Structural steel erection — deflection-checked self-correction",
+            DecisionContext = "Steel erection sequence for a simply supported beam, check L/360 live-load deflection.",
+            ConstructionPhase = "structural",
+            ModelId = "auricrux-structural-steel",
+            EngineeringQuestion = options.EngineeringQuestion
+                ?? $"Is live-load deflection acceptable for a {options.SpanFt:0.#} ft span at 400 plf on a compact W-shape?",
+            DesignIntent = "Structural steel — NSF cognitive loop"
+        }, ct);
+    }
+
     private static string BuildSummary(
         HypothesisComparison comparison,
         PhysicalVerificationResult verification,
@@ -165,7 +240,7 @@ public sealed class FoundationPourDemoService
     }
 }
 
-public sealed class FoundationPourDemoOptions
+public sealed record FoundationPourDemoOptions
 {
     public string ScenarioName { get; init; } = "Winter Foundation Pour — Self-Correction Loop";
     public string DecisionContext { get; init; } =
@@ -182,7 +257,12 @@ public sealed class FoundationPourDemoOptions
     public string? EvidenceUrl { get; init; }
     public string? VerifiedBy { get; init; }
     public string? EngineeringQuestion { get; init; }
+    public string? DesignIntent { get; init; }
     public Dictionary<string, double>? OverrideMeasurements { get; init; }
+    public double RelativeHumidity { get; init; } = 0.55;
+    public double WindSpeedMph { get; init; } = 8;
+    public double PileLengthFt { get; init; } = 40;
+    public double SpanFt { get; init; } = 30;
 }
 
 public sealed class FoundationPourDemoResult

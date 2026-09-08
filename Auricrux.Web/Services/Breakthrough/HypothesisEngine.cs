@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Auricrux.Web.Services;
 using Auricrux.Web.Services.Breakthrough.Physics;
 using Microsoft.Extensions.Logging;
@@ -28,17 +27,13 @@ namespace Auricrux.Web.Services.Breakthrough;
 public sealed class HypothesisEngine
 {
     private readonly AtlasService _atlas;
+    private readonly BreakthroughLoopStore _loop;
     private readonly ILogger<HypothesisEngine> _logger;
-    /// <summary>
-    /// Process-local cache so verification works when Atlas is not configured
-    /// (demo / sovereign / CI paths). Atlas remains the durable store when available.
-    /// </summary>
-    private static readonly ConcurrentDictionary<string, ConstructionHypothesis> MemoryByHypothesisId = new();
-    private static readonly ConcurrentDictionary<string, HypothesisComparison> MemoryByDecisionId = new();
 
-    public HypothesisEngine(AtlasService atlas, ILogger<HypothesisEngine> logger)
+    public HypothesisEngine(AtlasService atlas, ILogger<HypothesisEngine> logger, BreakthroughLoopStore? loopStore = null)
     {
         _atlas = atlas;
+        _loop = loopStore ?? new BreakthroughLoopStore();
         _logger = logger;
     }
 
@@ -86,7 +81,7 @@ public sealed class HypothesisEngine
     /// </summary>
     public async Task<ConstructionHypothesis?> FindHypothesisByIdAsync(string hypothesisId, CancellationToken ct = default)
     {
-        if (MemoryByHypothesisId.TryGetValue(hypothesisId, out var cached))
+        if (_loop.FindHypothesis(hypothesisId) is { } cached)
             return cached;
 
         if (!_atlas.IsConfigured) return null;
@@ -111,7 +106,7 @@ public sealed class HypothesisEngine
             if (hypothesisDoc == null) return null;
 
             var hypothesis = MapHypothesisFromBson(hypothesisDoc);
-            MemoryByHypothesisId[hypothesisId] = hypothesis;
+            _loop.CacheHypothesis(hypothesis);
             return hypothesis;
         }
         catch (Exception ex)
@@ -126,7 +121,7 @@ public sealed class HypothesisEngine
     /// </summary>
     public async Task<HypothesisComparison?> GetHypothesesAsync(string decisionId, CancellationToken ct = default)
     {
-        if (MemoryByDecisionId.TryGetValue(decisionId, out var cached))
+        if (_loop.FindDecision(decisionId) is { } cached)
             return cached;
 
         if (!_atlas.IsConfigured) return null;
@@ -152,12 +147,7 @@ public sealed class HypothesisEngine
         }
     }
 
-    private static void CacheInMemory(HypothesisComparison comparison)
-    {
-        MemoryByDecisionId[comparison.DecisionId] = comparison;
-        foreach (var h in comparison.Hypotheses)
-            MemoryByHypothesisId[h.HypothesisId] = h;
-    }
+    private void CacheInMemory(HypothesisComparison comparison) => _loop.CacheComparison(comparison);
 
     private static ConstructionHypothesis MapHypothesisFromBson(BsonDocument hypothesisDoc) => new()
     {
@@ -278,6 +268,24 @@ public sealed class HypothesisEngine
                     "Thermal cracking in thicker sections",
                     "Cost overrun from admixture premium"
                 ],
+                targetPsi, ambientTempF, slabThicknessIn, relativeHumidity, windSpeedMph),
+
+            BuildPourHypothesis(
+                FoundationPourPhysics.PourStrategy.HotWeatherProtected,
+                "Hot-Weather Pour — Fogging, Shades, Cooled Mix (ACI 305R)",
+                "Lower plastic-shrinkage and cold-joint risk; slightly slower surface set than an unprotected hot pour",
+                [
+                    "Fog spray or evaporation retarder on the surface",
+                    "Sunshades and cooled mixing water per ACI 305R",
+                    "Truck intervals planned inside the shortened set window",
+                    "Finishers staged before the slab goes plastic"
+                ],
+                baseConfidence: 0.76,
+                [
+                    "Fogging interrupted by wind",
+                    "Retarder overdose delaying strip",
+                    "Crew not ready when the surface crusts"
+                ],
                 targetPsi, ambientTempF, slabThicknessIn, relativeHumidity, windSpeedMph)
         ];
     }
@@ -328,12 +336,20 @@ public sealed class HypothesisEngine
             }
         }
 
-        if (physics.EvaporationRateLbPerSqFtPerHour > FoundationPourPhysics.HighEvaporationThreshold)
+        if (physics.EvaporationRateLbPerSqFtPerHour > FoundationPourPhysics.HighEvaporationThreshold
+            || physics.HotWeatherProtectionRequired)
         {
-            confidence -= 0.05;
-            groundedRisks.Insert(
-                0,
-                $"Evaporation {physics.EvaporationRateLbPerSqFtPerHour:0.###} lb/ft²/hr exceeds ACI 305R plastic-shrinkage threshold");
+            if (strategy == FoundationPourPhysics.PourStrategy.HotWeatherProtected)
+            {
+                confidence += 0.08;
+            }
+            else
+            {
+                confidence -= 0.05;
+                groundedRisks.Insert(
+                    0,
+                    $"Evaporation {physics.EvaporationRateLbPerSqFtPerHour:0.###} lb/ft²/hr / {ambientTempF:0.#}°F — ACI 305R hot-weather controls not in this approach");
+            }
         }
 
         if (strategy == FoundationPourPhysics.PourStrategy.AcceleratedHighEarly && slabThicknessIn > 18)
