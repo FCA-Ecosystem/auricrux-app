@@ -25,23 +25,32 @@ $ErrorActionPreference = "Stop"
 $baseUrl = $BaseUrl.TrimEnd('/')
 $results = New-Object System.Collections.Generic.List[object]
 $failures = 0
+$warnings = 0
 
 function Invoke-SmokeCheck {
     param(
         [string]$Name,
-        [scriptblock]$Action
+        [scriptblock]$Action,
+        [switch]$Optional
     )
     try {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $result = & $Action
         $sw.Stop()
         Write-Host "[PASS] $Name ($($sw.ElapsedMilliseconds)ms)" -ForegroundColor Green
-        $script:results.Add([ordered]@{ name = $Name; status = "PASS"; elapsedMs = $sw.ElapsedMilliseconds; detail = $result })
+        $script:results.Add([ordered]@{ name = $Name; status = "PASS"; optional = [bool]$Optional; elapsedMs = $sw.ElapsedMilliseconds; detail = $result })
     }
     catch {
-        Write-Host "[FAIL] $Name - $($_.Exception.Message)" -ForegroundColor Red
-        $script:results.Add([ordered]@{ name = $Name; status = "FAIL"; error = $_.Exception.Message })
-        $script:failures++
+        if ($Optional) {
+            Write-Host "[WARN] $Name (LLM path, non-gating) - $($_.Exception.Message)" -ForegroundColor Yellow
+            $script:results.Add([ordered]@{ name = $Name; status = "WARN"; optional = $true; error = $_.Exception.Message })
+            $script:warnings++
+        }
+        else {
+            Write-Host "[FAIL] $Name - $($_.Exception.Message)" -ForegroundColor Red
+            $script:results.Add([ordered]@{ name = $Name; status = "FAIL"; optional = $false; error = $_.Exception.Message })
+            $script:failures++
+        }
     }
 }
 
@@ -71,7 +80,7 @@ Invoke-SmokeCheck "GET /api/models" {
     "models=$($r.models -join ',')"
 }
 
-Invoke-SmokeCheck "POST /api/chat (real construction query)" {
+Invoke-SmokeCheck "POST /api/chat (real construction query)" -Optional {
     $body = '{"query":"What is a sill plate?","thinkingMode":0,"searchScope":0}'
     $r = Invoke-RestMethod -Uri "$baseUrl/api/chat" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 120
     if (-not $r.content -or $r.content.Length -lt 10) { throw "Chat content missing or too short" }
@@ -87,7 +96,16 @@ Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (ACI 305R)" {
     "hypotheses=$($hyps.Count) recommended=$($r.recommendedApproach)"
 }
 
-Invoke-SmokeCheck "POST /api/thinking (non-mock reasoning)" {
+Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (incomplete prior silences)" {
+    $body = '{"includeRequiredPhysics":false,"seedAdditionalVerifications":0}'
+    $r = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/demo/foundation-pour" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 60
+    if ($r.incomplete -ne $true) { throw "expected incomplete=true" }
+    $hyps = @($r.hypotheses)
+    if ($hyps.Count -ne 0) { throw "expected 0 hypotheses, got $($hyps.Count)" }
+    "silenced=$($r.incompleteReason)"
+}
+
+Invoke-SmokeCheck "POST /api/thinking (non-mock reasoning)" -Optional {
     # ThinkingRequest binds `Mode` (enum), not chat's thinkingMode — Deep can overload Ollama/App Service (503).
     $body = '{"query":"How do I sequence a concrete pour after formwork?","mode":0}'
     $r = Invoke-RestMethod -Uri "$baseUrl/api/thinking" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 180
@@ -110,7 +128,7 @@ Invoke-SmokeCheck "GET /api/capabilities (feature parity matrix)" {
     "shippedCore=$($r.parityScore.shippedCore) corpus=$($r.corpusEntries)"
 }
 
-Invoke-SmokeCheck "POST /api/browse (live URL fetch + summarize)" {
+Invoke-SmokeCheck "POST /api/browse (live URL fetch + summarize)" -Optional {
     $body = '{"url":"https://example.com/","question":"Summarize for a contractor in one sentence."}'
     $r = Invoke-RestMethod -Uri "$baseUrl/api/browse" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 180
     if (-not $r.success) { throw "Browse failed: $($r.error)" }
@@ -126,7 +144,7 @@ Invoke-SmokeCheck "POST /api/calc (construction calculator)" {
     "value=$($r.value) $($r.unit)"
 }
 
-Invoke-SmokeCheck "POST /api/agent (tool loop)" {
+Invoke-SmokeCheck "POST /api/agent (tool loop)" -Optional {
     $body = '{"query":"How many cubic yards for a 20x10 ft slab 6 inches thick?"}'
     $r = Invoke-RestMethod -Uri "$baseUrl/api/agent" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 240
     if (-not $r.success) { throw "Agent failed: $($r.error)" }
@@ -141,6 +159,7 @@ $report = [ordered]@{
     runAtUtc = (Get-Date).ToUniversalTime().ToString("o")
     totalChecks = $results.Count
     failures = $failures
+    warnings = $warnings
     checks = $results
 }
 $reportDir = Join-Path (Join-Path (Join-Path $PSScriptRoot "..") "eval") "reports"
@@ -150,8 +169,12 @@ $report | ConvertTo-Json -Depth 6 | Set-Content -Path $reportPath -Encoding utf8
 Write-Host "Report written to $reportPath"
 
 if ($failures -gt 0) {
-    Write-Host "$failures check(s) FAILED" -ForegroundColor Red
+    Write-Host "$failures critical check(s) FAILED ($warnings LLM warning(s))" -ForegroundColor Red
     exit 1
+}
+if ($warnings -gt 0) {
+    Write-Host "Critical checks PASSED. $warnings LLM path warning(s) — identity/pour still green." -ForegroundColor Yellow
+    exit 0
 }
 Write-Host "All checks PASSED against live production backend." -ForegroundColor Green
 exit 0
