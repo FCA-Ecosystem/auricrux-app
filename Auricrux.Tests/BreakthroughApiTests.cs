@@ -63,7 +63,7 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
         {
             decisionContext = "Cold weather foundation pour with tight truck spacing",
             constructionPhase = "foundation-pour",
-            constraints = new Dictionary<string, double> { ["target_psi"] = 4000, ["ambient_temp_f"] = 40 }
+            constraints = new Dictionary<string, double> { ["target_psi"] = 4000, ["ambient_temp_f"] = 40, ["slab_thickness_in"] = 8 }
         });
         var comparison = await generate.Content.ReadFromJsonAsync<HypothesisComparison>();
         Assert.NotNull(comparison);
@@ -251,7 +251,7 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
         {
             decisionContext = "Steel framing for a 30-foot bay",
             constructionPhase = "structural-steel",
-            constraints = new Dictionary<string, double> { ["span_ft"] = 30, ["uniform_load_plf"] = 400 }
+            constraints = new Dictionary<string, double> { ["span_ft"] = 30, ["uniform_load_plf"] = 400, ["moment_of_inertia_in4"] = 475 }
         });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var comparison = await response.Content.ReadFromJsonAsync<HypothesisComparison>();

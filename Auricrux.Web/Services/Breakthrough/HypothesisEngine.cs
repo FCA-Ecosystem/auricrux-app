@@ -1,5 +1,6 @@
 using Auricrux.Web.Services;
 using Auricrux.Web.Services.Breakthrough.Physics;
+using Auricrux.Web.Services.PhaseI;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using MongoDB.Driver;
@@ -51,6 +52,8 @@ public sealed class HypothesisEngine
 
         var decisionId = Guid.NewGuid().ToString();
         var hypotheses = await GenerateCompetingApproachesAsync(decisionContext, constructionPhase, knownConstraints, ct);
+        var incompleteReason = RequiredPhysicsInputs.IncompleteReason(
+            constructionPhase, decisionContext, knownConstraints, hypotheses.Count);
 
         var comparison = new HypothesisComparison
         {
@@ -60,8 +63,10 @@ public sealed class HypothesisEngine
             ProjectId = projectId,
             Hypotheses = hypotheses,
             RecommendedApproach = SelectRecommendedApproach(hypotheses),
-            Reasoning = BuildRecommendationReasoning(hypotheses),
-            GeneratedAt = DateTime.UtcNow
+            Reasoning = incompleteReason ?? BuildRecommendationReasoning(hypotheses),
+            GeneratedAt = DateTime.UtcNow,
+            Incomplete = incompleteReason is not null,
+            IncompleteReason = incompleteReason
         };
 
         CacheInMemory(comparison);
@@ -209,11 +214,18 @@ public sealed class HypothesisEngine
         string context,
         Dictionary<string, object>? constraints)
     {
-        var targetPsi = ReadNumericConstraint(constraints, "target_psi", 4000.0);
-        var ambientTempF = ReadNumericConstraint(constraints, "ambient_temp_f", 62.0);
-        var slabThicknessIn = ReadNumericConstraint(constraints, "slab_thickness_in", 8.0);
-        var relativeHumidity = ReadNumericConstraint(constraints, "relative_humidity", 0.55);
-        var windSpeedMph = ReadNumericConstraint(constraints, "wind_speed_mph", 8.0);
+        if (RequiredPhysicsInputs.Missing(constraints, RequiredPhysicsInputs.PourRequired).Count > 0)
+            return [];
+
+        RequiredPhysicsInputs.TryRead(constraints, "target_psi", out var targetPsi);
+        RequiredPhysicsInputs.TryRead(constraints, "ambient_temp_f", out var ambientTempF);
+        RequiredPhysicsInputs.TryRead(constraints, "slab_thickness_in", out var slabThicknessIn);
+        var relativeHumidity = RequiredPhysicsInputs.TryRead(constraints, "relative_humidity", out var humidity)
+            ? humidity
+            : 0.55;
+        var windSpeedMph = RequiredPhysicsInputs.TryRead(constraints, "wind_speed_mph", out var mph)
+            ? mph
+            : 8.0;
 
         return
         [
@@ -520,10 +532,15 @@ public sealed class HypothesisEngine
         string context,
         Dictionary<string, object>? constraints)
     {
-        var spanFt = ReadNumericConstraint(constraints, "span_ft", 30);
-        var uniformLoadPlf = ReadNumericConstraint(constraints, "uniform_load_plf", 400);
-        var elasticModulusPsi = ReadNumericConstraint(constraints, "steel_E_psi", 29_000_000);
-        var momentOfInertiaIn4 = ReadNumericConstraint(constraints, "moment_of_inertia_in4", 475);
+        if (RequiredPhysicsInputs.Missing(constraints, RequiredPhysicsInputs.SteelDeflectionRequired).Count > 0)
+            return [];
+
+        RequiredPhysicsInputs.TryRead(constraints, "span_ft", out var spanFt);
+        RequiredPhysicsInputs.TryRead(constraints, "uniform_load_plf", out var uniformLoadPlf);
+        var elasticModulusPsi = RequiredPhysicsInputs.TryRead(constraints, "steel_E_psi", out var ePsi)
+            ? ePsi
+            : RequiredPhysicsInputs.SteelEPsiDefault;
+        RequiredPhysicsInputs.TryRead(constraints, "moment_of_inertia_in4", out var momentOfInertiaIn4);
         var plasticModulusIn3 = ReadNumericConstraint(constraints, "plastic_modulus_in3", 47);
         var fyPsi = ReadNumericConstraint(constraints, "fy_psi", 50_000);
         var boltDiaIn = ReadNumericConstraint(constraints, "bolt_diameter_in", 0.75);
@@ -726,13 +743,16 @@ public sealed class HypothesisEngine
 
     private string SelectRecommendedApproach(List<ConstructionHypothesis> hypotheses)
     {
-        // Select based on confidence score and predicted outcome quality
+        if (hypotheses.Count == 0)
+            return "";
         var best = hypotheses.OrderByDescending(h => h.ConfidenceScore).First();
         return best.Approach;
     }
 
     private string BuildRecommendationReasoning(List<ConstructionHypothesis> hypotheses)
     {
+        if (hypotheses.Count == 0)
+            return "Prior is incomplete. Silence is the correct failure.";
         var recommended = hypotheses.OrderByDescending(h => h.ConfidenceScore).First();
         return $"Recommended '{recommended.Approach}' based on {recommended.ConfidenceScore:P0} confidence. " +
                $"This approach balances {string.Join(", ", recommended.Assumptions.Take(2))}. " +
@@ -822,6 +842,8 @@ public sealed class HypothesisComparison
     public required string RecommendedApproach { get; init; }
     public required string Reasoning { get; init; }
     public DateTime GeneratedAt { get; init; }
+    public bool Incomplete { get; init; }
+    public string? IncompleteReason { get; init; }
 }
 
 public sealed class ConstructionHypothesis

@@ -17,8 +17,8 @@
   ./scripts/smoke_prod.ps1 -BaseUrl "https://auricrux.futurecontractorsofamerica.com"
 #>
 param(
-    # Azure is permanently retired; the documented production endpoint is the custom domain.
-    [string]$BaseUrl = "http://auricrux.futurecontractorsofamerica.com"
+    # Azure is permanently retired; live product is HTTPS on the custom domain.
+    [string]$BaseUrl = "https://auricrux.futurecontractorsofamerica.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,6 +76,15 @@ Invoke-SmokeCheck "POST /api/chat (real construction query)" {
     $r = Invoke-RestMethod -Uri "$baseUrl/api/chat" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 120
     if (-not $r.content -or $r.content.Length -lt 10) { throw "Chat content missing or too short" }
     "contentLength=$($r.content.Length)"
+}
+
+Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (ACI 305R)" {
+    $r = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/demo/foundation-pour" -Method Post -Body '{}' -ContentType "application/json" -TimeoutSec 60
+    $hyps = @($r.hypotheses)
+    if ($hyps.Count -ne 4) { throw "Expected 4 pour hypotheses, got $($hyps.Count)" }
+    $hot = $hyps | Where-Object { $_.approach -match 'Hot-Weather' }
+    if (-not $hot) { throw "Missing ACI 305R Hot-Weather strategy" }
+    "hypotheses=$($hyps.Count) recommended=$($r.recommendedApproach)"
 }
 
 Invoke-SmokeCheck "POST /api/thinking (non-mock reasoning)" {

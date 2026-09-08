@@ -1,3 +1,4 @@
+using Auricrux.Web.Services.PhaseI;
 using Microsoft.Extensions.Logging;
 
 namespace Auricrux.Web.Services.Breakthrough;
@@ -40,16 +41,48 @@ public sealed class FoundationPourDemoService
         options ??= new FoundationPourDemoOptions();
         _logger.LogInformation("Running foundation pour self-correction demo (scenario={Scenario})", options.ScenarioName);
 
+        if (ShouldEvaluateProofGate(options))
+        {
+            var packet = EvidenceProofGate.FromAct(
+                options.DecisionId,
+                options.VerificationId,
+                options.HumanAccepted,
+                options.OverrideAudit,
+                options.EvidenceJson);
+            var gate = EvidenceProofGate.Evaluate(packet, options.DisableProofGate);
+            if (!gate.AllowProceed)
+            {
+                return SilenceIncomplete(options, new HypothesisComparison
+                {
+                    DecisionId = options.DecisionId ?? "",
+                    DecisionContext = options.DecisionContext,
+                    ConstructionPhase = options.ConstructionPhase,
+                    ProjectId = options.ProjectId,
+                    Hypotheses = [],
+                    RecommendedApproach = "",
+                    Reasoning = gate.Reason,
+                    GeneratedAt = DateTime.UtcNow,
+                    Incomplete = true,
+                    IncompleteReason = gate.Reason
+                });
+            }
+        }
+
         var constraints = new Dictionary<string, object>
         {
-            ["target_psi"] = options.TargetPsi,
-            ["ambient_temp_f"] = options.AmbientTempF,
-            ["slab_thickness_in"] = options.SlabThicknessIn,
             ["relative_humidity"] = options.RelativeHumidity,
-            ["wind_speed_mph"] = options.WindSpeedMph,
-            ["pile_length_ft"] = options.PileLengthFt,
-            ["span_ft"] = options.SpanFt
+            ["wind_speed_mph"] = options.WindSpeedMph
         };
+        if (options.IncludeRequiredPhysics)
+        {
+            constraints["target_psi"] = options.TargetPsi;
+            constraints["ambient_temp_f"] = options.AmbientTempF;
+            constraints["slab_thickness_in"] = options.SlabThicknessIn;
+            constraints["pile_length_ft"] = options.PileLengthFt;
+            constraints["span_ft"] = options.SpanFt;
+            constraints["uniform_load_plf"] = options.UniformLoadPlf;
+            constraints["moment_of_inertia_in4"] = options.MomentOfInertiaIn4;
+        }
 
         // 1. Competing hypotheses for the pour decision
         var comparison = await _hypothesisEngine.GenerateHypothesesAsync(
@@ -58,6 +91,11 @@ public sealed class FoundationPourDemoService
             options.ProjectId,
             constraints,
             ct);
+
+        if (comparison.Incomplete || comparison.Hypotheses.Count == 0)
+        {
+            return SilenceIncomplete(options, comparison);
+        }
 
         var chosen = comparison.Hypotheses
             .FirstOrDefault(h => h.Approach == comparison.RecommendedApproach)
@@ -124,7 +162,72 @@ public sealed class FoundationPourDemoService
             MetaLearning = meta,
             Proof = proof,
             LoopClosed = verification.RequiresModelCorrection || meta.SystematicErrors.Count > 0,
+            Incomplete = false,
             Summary = BuildSummary(comparison, verification, meta, proof)
+        };
+    }
+
+    private static bool ShouldEvaluateProofGate(FoundationPourDemoOptions options) =>
+        options.RequireProofGate
+        || !string.IsNullOrWhiteSpace(options.EvidenceJson)
+        || !string.IsNullOrWhiteSpace(options.DecisionId)
+        || !string.IsNullOrWhiteSpace(options.VerificationId);
+
+    private static FoundationPourDemoResult SilenceIncomplete(
+        FoundationPourDemoOptions options,
+        HypothesisComparison comparison)
+    {
+        var reason = comparison.IncompleteReason
+                     ?? "Prior is incomplete. Missing required pour inputs. Silence is the correct failure.";
+        return new FoundationPourDemoResult
+        {
+            ScenarioName = options.ScenarioName,
+            DecisionId = comparison.DecisionId,
+            Hypotheses = comparison.Hypotheses,
+            RecommendedApproach = comparison.RecommendedApproach,
+            RecommendationReasoning = comparison.Reasoning,
+            ChosenHypothesisId = "",
+            Verification = new PhysicalVerificationResult
+            {
+                VerificationId = "",
+                PredictionId = "",
+                AccuracyScore = 0,
+                MeasurementVariances = new Dictionary<string, MeasurementVariance>(),
+                IdentifiedErrors = [],
+                RequiresModelCorrection = false,
+                CorrectionRationale = reason,
+                ActualOutcome = "No field loop: incomplete prior.",
+                VerifiedAt = DateTime.UtcNow
+            },
+            MetaLearning = new MetaLearningInsight
+            {
+                ModelId = options.ModelId,
+                AnalysisPeriod = TimeSpan.Zero,
+                TotalPredictions = 0,
+                VerifiedPredictions = 0,
+                OverallAccuracy = 0,
+                SystematicErrors = [],
+                RecommendedExperiments = [],
+                ConfidenceCalibration = new Dictionary<string, double>()
+            },
+            Proof = new ProvableReasoningResult
+            {
+                ProofId = "",
+                Question = options.EngineeringQuestion ?? options.DecisionContext,
+                QuestionType = "incomplete",
+                Conclusion = reason,
+                ProofSteps = [],
+                MathematicalVerification = new Dictionary<string, string>(),
+                CitedStandards = ["ACI 305R", "ACI 306R", "ACI 209R"],
+                CertaintyLevel = 0,
+                LimitationsDisclosure = "Silence is correct. Do not treat an empty prior as a complete pour recommendation.",
+                PhysicalParameters = new Dictionary<string, double>(),
+                GeneratedAt = DateTime.UtcNow
+            },
+            LoopClosed = false,
+            Incomplete = true,
+            IncompleteReason = reason,
+            Summary = $"Incomplete prior; {comparison.Hypotheses.Count} hypotheses; field loop silenced. {reason}"
         };
     }
 
@@ -263,6 +366,16 @@ public sealed record FoundationPourDemoOptions
     public double WindSpeedMph { get; init; } = 8;
     public double PileLengthFt { get; init; } = 40;
     public double SpanFt { get; init; } = 30;
+    public double UniformLoadPlf { get; init; } = 400;
+    public double MomentOfInertiaIn4 { get; init; } = 475;
+    public bool IncludeRequiredPhysics { get; init; } = true;
+    public string? EvidenceJson { get; init; }
+    public string? DecisionId { get; init; }
+    public string? VerificationId { get; init; }
+    public bool HumanAccepted { get; init; } = true;
+    public bool OverrideAudit { get; init; }
+    public bool RequireProofGate { get; init; }
+    public bool DisableProofGate { get; init; }
 }
 
 public sealed class FoundationPourDemoResult
@@ -277,5 +390,7 @@ public sealed class FoundationPourDemoResult
     public required MetaLearningInsight MetaLearning { get; init; }
     public required ProvableReasoningResult Proof { get; init; }
     public required bool LoopClosed { get; init; }
+    public bool Incomplete { get; init; }
+    public string? IncompleteReason { get; init; }
     public required string Summary { get; init; }
 }

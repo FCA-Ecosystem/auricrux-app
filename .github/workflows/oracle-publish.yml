@@ -1,0 +1,79 @@
+name: Publish Auricrux Oracle
+
+# Rebuilds only auricrux-web on 150.136.90.65. Never compose-up, never touch ollama,
+# never create/overwrite auricrux-fca, never Azure, never GCP DNS.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'Auricrux.Web/**'
+      - 'Auricrux.Shared/**'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.github/workflows/oracle-publish.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oracle-auricrux-web
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish web container on Oracle
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: 150.136.90.65
+          username: ubuntu
+          key: ${{ secrets.ORACLE_SSH_PRIVATE_KEY }}
+          command_timeout: 40m
+          script: |
+            set -euo pipefail
+            cd /home/ubuntu/auricrux-app
+            git remote set-url origin https://github.com/Auricrux/auricrux-app.git
+            git fetch origin main
+            git checkout -B main origin/main
+            SHA="$(git rev-parse HEAD)"
+            SHORT="$(git rev-parse --short HEAD)"
+            echo "publishing $SHORT"
+            sudo docker build -t "auricrux-web:$SHORT" .
+            sudo docker stop auricrux-web
+            sudo docker rename auricrux-web "auricrux-web-pre-$SHORT" || true
+            sudo docker run -d \
+              --name auricrux-web \
+              --restart unless-stopped \
+              --network auricrux-net \
+              -p 80:80 \
+              -e ASPNETCORE_ENVIRONMENT=Production \
+              -e ASPNETCORE_URLS=http://+:80 \
+              -e Auricrux__OllamaUrl=http://ollama:11434 \
+              -e Auricrux__PrimaryModel=auricrux-fca \
+              -e Auricrux__SecondaryModel=llama3.2 \
+              -e Auricrux__TertiaryModel=mistral \
+              -e Auricrux__ExtendedModel=llama3.1:70b \
+              -e Auricrux__VisionModel=llava \
+              -e GIT_COMMIT="$SHA" \
+              -e Auricrux__GitSha="$SHA" \
+              "auricrux-web:$SHORT"
+            ok=0
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              sleep 5
+              if curl -fsS --max-time 8 http://127.0.0.1/api/health >/tmp/auricrux-health.json; then
+                ok=1
+                break
+              fi
+            done
+            if [ "$ok" != 1 ]; then
+              echo "new web failed health; rolling back"
+              sudo docker rm -f auricrux-web || true
+              sudo docker rename "auricrux-web-pre-$SHORT" auricrux-web
+              sudo docker start auricrux-web
+              exit 1
+            fi
+            python3 -c 'import json; h=json.load(open("/tmp/auricrux-health.json")); print(h.get("version"), h.get("gitSha"), h.get("ollamaReachable"))'
+            sudo docker rm "auricrux-web-pre-$SHORT" || true
+            sudo docker ps --format '{{.Names}} {{.Image}} {{.Status}}'

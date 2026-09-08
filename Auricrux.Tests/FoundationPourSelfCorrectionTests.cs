@@ -55,6 +55,49 @@ public sealed class FoundationPourSelfCorrectionTests
     }
 
     [Fact]
+    public async Task FoundationPourDemo_MissingRequiredInputs_SilencesLoop()
+    {
+        var (demo, loop) = CreateDemoService();
+        var projectId = $"test-pour-incomplete-{Guid.NewGuid():N}";
+
+        var result = await demo.RunAsync(new FoundationPourDemoOptions
+        {
+            IncludeRequiredPhysics = false,
+            SeedAdditionalVerifications = 0,
+            ProjectId = projectId
+        });
+
+        Assert.True(result.Incomplete);
+        Assert.Empty(result.Hypotheses);
+        Assert.False(result.LoopClosed);
+        Assert.Equal("", result.ChosenHypothesisId);
+        Assert.Contains("Missing", result.IncompleteReason, StringComparison.Ordinal);
+        Assert.Empty(loop.ListControlRecommendations(projectId));
+    }
+
+    [Fact]
+    public async Task FoundationPourDemo_ContradictoryEvidence_SilencesLoop()
+    {
+        var (demo, loop) = CreateDemoService();
+        var projectId = $"test-pour-faulted-{Guid.NewGuid():N}";
+
+        var result = await demo.RunAsync(new FoundationPourDemoOptions
+        {
+            ProjectId = projectId,
+            SeedAdditionalVerifications = 0,
+            DecisionId = "decision-faulted",
+            VerificationId = "verify-faulted",
+            EvidenceJson = """{"contradictory":true}"""
+        });
+
+        Assert.True(result.Incomplete);
+        Assert.Empty(result.Hypotheses);
+        Assert.False(result.LoopClosed);
+        Assert.Contains("contradictory", result.IncompleteReason, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(loop.ListControlRecommendations(projectId));
+    }
+
+    [Fact]
     public async Task HypothesisEngine_CachesPourHypotheses_ForVerificationWithoutAtlas()
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection().Build();
@@ -65,7 +108,13 @@ public sealed class FoundationPourSelfCorrectionTests
         var comparison = await engine.GenerateHypothesesAsync(
             "Foundation pour for 4000 PSI slab in cold weather",
             "foundation-pour",
-            "unit-test-project");
+            "unit-test-project",
+            new Dictionary<string, object>
+            {
+                ["target_psi"] = 4000,
+                ["ambient_temp_f"] = 38,
+                ["slab_thickness_in"] = 8
+            });
 
         var chosen = comparison.Hypotheses[0];
         var found = await engine.FindHypothesisByIdAsync(chosen.HypothesisId);

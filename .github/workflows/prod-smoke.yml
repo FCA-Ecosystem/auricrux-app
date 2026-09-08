@@ -29,8 +29,8 @@ jobs:
         run: |
           base="${{ github.event.inputs.base_url }}"
           if [ -z "$base" ]; then base="${{ vars.PROD_SMOKE_BASE_URL }}"; fi
-          # TLS on the Oracle host is not listening on :443 yet; HTTP is the live product.
-          if [ -z "$base" ]; then base="http://auricrux.futurecontractorsofamerica.com"; fi
+          # Live product is HTTPS on Oracle .65 behind Caddy; Azure is retired.
+          if [ -z "$base" ]; then base="https://auricrux.futurecontractorsofamerica.com"; fi
           case "$base" in
             *azurewebsites.net*)
               echo "::error::Azure is retired; refusing to smoke test $base. Set the PROD_SMOKE_BASE_URL repository variable."
