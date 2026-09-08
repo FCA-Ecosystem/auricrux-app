@@ -52,6 +52,9 @@ public sealed class FoundationPourSelfCorrectionTests
         Assert.NotEmpty(result.Proof.ProofSteps);
         Assert.NotEmpty(result.Proof.CitedStandards);
         Assert.NotEmpty(loop.ListControlRecommendations(projectId));
+        Assert.False(result.PedagogySilence);
+        Assert.Equal("hold-strip", result.PedagogyProposedAction);
+        Assert.Contains("not catalog matching", result.PedagogyLesson, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -73,6 +76,8 @@ public sealed class FoundationPourSelfCorrectionTests
         Assert.Equal("", result.ChosenHypothesisId);
         Assert.Contains("Missing", result.IncompleteReason, StringComparison.Ordinal);
         Assert.Empty(loop.ListControlRecommendations(projectId));
+        Assert.True(result.PedagogySilence);
+        Assert.Null(result.PedagogyProposedAction);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using Auricrux.Web.Services.PhaseI;
+using Auricrux.Web.Services.PhaseII;
 using Microsoft.Extensions.Logging;
 
 namespace Auricrux.Web.Services.Breakthrough;
@@ -150,6 +151,14 @@ public sealed class FoundationPourDemoService
 
         PublishControlRecommendation(options, comparison, chosen, verification, proof);
 
+        var loopClosed = verification.RequiresModelCorrection || meta.SystematicErrors.Count > 0;
+        var pedagogy = PedagogyActuator.FromPourLoop(
+            incomplete: false,
+            incompleteReason: null,
+            loopClosed: loopClosed,
+            requiresCorrection: verification.RequiresModelCorrection,
+            recommendedApproach: comparison.RecommendedApproach);
+
         return new FoundationPourDemoResult
         {
             ScenarioName = options.ScenarioName,
@@ -161,8 +170,12 @@ public sealed class FoundationPourDemoService
             Verification = verification,
             MetaLearning = meta,
             Proof = proof,
-            LoopClosed = verification.RequiresModelCorrection || meta.SystematicErrors.Count > 0,
+            LoopClosed = loopClosed,
             Incomplete = false,
+            PedagogySilence = pedagogy.Silence,
+            PedagogyProposedAction = pedagogy.ProposedAction,
+            PedagogyLessonTopic = pedagogy.FieldLessonTopic,
+            PedagogyLesson = pedagogy.FieldLesson,
             Summary = BuildSummary(comparison, verification, meta, proof)
         };
     }
@@ -227,6 +240,10 @@ public sealed class FoundationPourDemoService
             LoopClosed = false,
             Incomplete = true,
             IncompleteReason = reason,
+            PedagogySilence = true,
+            PedagogyProposedAction = null,
+            PedagogyLessonTopic = null,
+            PedagogyLesson = null,
             Summary = $"Incomplete prior; {comparison.Hypotheses.Count} hypotheses; field loop silenced. {reason}"
         };
     }
@@ -392,5 +409,9 @@ public sealed class FoundationPourDemoResult
     public required bool LoopClosed { get; init; }
     public bool Incomplete { get; init; }
     public string? IncompleteReason { get; init; }
+    public bool PedagogySilence { get; init; }
+    public string? PedagogyProposedAction { get; init; }
+    public string? PedagogyLessonTopic { get; init; }
+    public string? PedagogyLesson { get; init; }
     public required string Summary { get; init; }
 }

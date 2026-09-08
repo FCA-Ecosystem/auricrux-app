@@ -53,7 +53,31 @@
                 <div><dt>Correction required</dt><dd>@(result.Verification.RequiresModelCorrection ? "Yes" : "No")</dd></div>
                 <div><dt>Meta-learning samples</dt><dd>@result.MetaLearning.TotalPredictions</dd></div>
                 <div><dt>Proof certainty</dt><dd>@result.Proof.CertaintyLevel.ToString("P0")</dd></div>
+                @if (result.Incomplete)
+                {
+                    <div><dt>Prior</dt><dd>Incomplete — silenced</dd></div>
+                }
             </dl>
+        </section>
+
+        <section class="pour-demo__step">
+            <h2>5. Pedagogy as actuator</h2>
+            <p>
+                Phase II proposes a governed hold/proceed from a closed loop.
+                Catalog matching is not unique lesson synthesis. Human accept is required before any schedule mutation.
+            </p>
+            @if (result.PedagogySilence)
+            {
+                <p class="pour-demo__reason">Pedagogy silenced. @(result.IncompleteReason ?? "Incomplete prior or open loop.")</p>
+            }
+            else
+            {
+                <dl class="pour-demo__meta">
+                    <div><dt>Proposed act</dt><dd><code>@result.PedagogyProposedAction</code></dd></div>
+                    <div><dt>Lesson</dt><dd>@result.PedagogyLessonTopic</dd></div>
+                </dl>
+                <p class="pour-demo__reason">@result.PedagogyLesson</p>
+            }
         </section>
 
         <section class="pour-demo__step">
