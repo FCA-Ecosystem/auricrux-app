@@ -93,7 +93,10 @@ Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (ACI 305R)" {
     if ($hyps.Count -ne 4) { throw "Expected 4 pour hypotheses, got $($hyps.Count)" }
     $hot = $hyps | Where-Object { $_.approach -match 'Hot-Weather' }
     if (-not $hot) { throw "Missing ACI 305R Hot-Weather strategy" }
-    "hypotheses=$($hyps.Count) recommended=$($r.recommendedApproach)"
+    if ($r.pedagogySilence -eq $true) { throw "closed pour loop must not silence pedagogy" }
+    if ($r.pedagogyProposedAction -ne "hold-strip") { throw "expected hold-strip, got $($r.pedagogyProposedAction)" }
+    if ($r.pedagogyLesson -notmatch 'not catalog matching') { throw "expected job-derived lesson" }
+    "hypotheses=$($hyps.Count) recommended=$($r.recommendedApproach) action=$($r.pedagogyProposedAction)"
 }
 
 Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (incomplete prior silences)" {
@@ -102,6 +105,8 @@ Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (incomplete prior
     if ($r.incomplete -ne $true) { throw "expected incomplete=true" }
     $hyps = @($r.hypotheses)
     if ($hyps.Count -ne 0) { throw "expected 0 hypotheses, got $($hyps.Count)" }
+    if ($r.pedagogySilence -ne $true) { throw "incomplete prior must silence pedagogy" }
+    if ($r.pedagogyProposedAction) { throw "incomplete prior must not propose an act" }
     "silenced=$($r.incompleteReason)"
 }
 
