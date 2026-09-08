@@ -14,6 +14,7 @@ public sealed class BreakthroughLoopStore
     private readonly ConcurrentDictionary<string, ProvableReasoningResult> _proofs = new();
     private readonly ConcurrentBag<PhysicalVerificationResult> _verifications = [];
     private readonly ConcurrentBag<ControlRecommendation> _recommendations = [];
+    private readonly ConcurrentBag<FieldLessonRecord> _fieldLessons = [];
 
     public void CacheComparison(HypothesisComparison comparison)
     {
@@ -57,6 +58,23 @@ public sealed class BreakthroughLoopStore
             .Where(r => string.Equals(r.ProjectId, projectId, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(r => r.CreatedAtUtc)
             .ToList();
+
+    public void AddFieldLesson(FieldLessonRecord lesson) =>
+        _fieldLessons.Add(lesson);
+
+    public IReadOnlyList<FieldLessonRecord> ListFieldLessons(string? projectId, int limit = 20)
+    {
+        var rows = _fieldLessons.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(projectId))
+        {
+            rows = rows.Where(l => string.Equals(l.ProjectId, projectId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return rows
+            .OrderByDescending(l => l.CreatedAtUtc)
+            .Take(Math.Clamp(limit, 1, 100))
+            .ToList();
+    }
 }
 
 /// <summary>
@@ -70,5 +88,23 @@ public sealed class ControlRecommendation
     public required string Description { get; init; }
     public required string Timeframe { get; init; }
     public required string SourceDecisionId { get; init; }
+    public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Job-derived field lesson from a closed loop. Process memory only unless Atlas is later configured.
+/// Catalog matching is not lesson synthesis.
+/// </summary>
+public sealed class FieldLessonRecord
+{
+    public required string LessonId { get; init; }
+    public required string ProjectId { get; init; }
+    public required string Slice { get; init; }
+    public required string ProposedAction { get; init; }
+    public required string Topic { get; init; }
+    public required string Lesson { get; init; }
+    public required string SourceDecisionId { get; init; }
+    public string DurableStore { get; init; } = "process-memory";
+    public bool CatalogMatchIsNotSynthesis { get; init; } = true;
     public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
 }

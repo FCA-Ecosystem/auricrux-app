@@ -71,4 +71,56 @@ public static class PedagogyActuator
             GovernanceClass: "safety",
             CatalogMatchIsNotSynthesis: true);
     }
+
+    public static PedagogyProposal FromSteelLoop(
+        bool incomplete,
+        string? incompleteReason,
+        bool loopClosed,
+        bool requiresCorrection,
+        string recommendedApproach)
+    {
+        if (incomplete)
+        {
+            return new PedagogyProposal(
+                Silence: true,
+                SilenceReason: incompleteReason ?? "Prior is incomplete. Pedagogy cannot actuate.",
+                Slice: SteelSlice,
+                ProposedAction: null,
+                FieldLessonTopic: null,
+                FieldLesson: null,
+                GovernanceClass: "safety",
+                CatalogMatchIsNotSynthesis: true);
+        }
+
+        if (!loopClosed)
+        {
+            return new PedagogyProposal(
+                Silence: true,
+                SilenceReason: "Loop is not closed. Pedagogy cannot actuate on an unfalsified hypothesis.",
+                Slice: SteelSlice,
+                ProposedAction: null,
+                FieldLessonTopic: null,
+                FieldLesson: null,
+                GovernanceClass: "safety",
+                CatalogMatchIsNotSynthesis: true);
+        }
+
+        var action = requiresCorrection ? "hold-erection" : "proceed-erection";
+        var topic = requiresCorrection
+            ? "Hold erection until deflection catches L/360"
+            : $"Proceed under {recommendedApproach}";
+        var lesson = requiresCorrection
+            ? $"Job-derived lesson (not catalog matching): field deflection diverged from '{recommendedApproach}'. Hold erection until the steel prior and L/360 agree. Human accept is required before any schedule mutation."
+            : $"Job-derived lesson (not catalog matching): '{recommendedApproach}' closed the loop closely enough to propose proceed-erection. Human accept is still required before mutation.";
+
+        return new PedagogyProposal(
+            Silence: false,
+            SilenceReason: null,
+            Slice: SteelSlice,
+            ProposedAction: action,
+            FieldLessonTopic: topic,
+            FieldLesson: lesson,
+            GovernanceClass: "safety",
+            CatalogMatchIsNotSynthesis: true);
+    }
 }

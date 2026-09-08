@@ -285,6 +285,13 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
         var recBody = await recs.Content.ReadAsStringAsync();
         Assert.DoesNotContain("implementation in progress", recBody, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("from_breakthrough_loop", recBody);
+
+        var lessons = await _client.GetAsync($"/api/breakthrough/field-lessons?projectId={projectId}");
+        Assert.Equal(HttpStatusCode.OK, lessons.StatusCode);
+        var lessonBody = await lessons.Content.ReadAsStringAsync();
+        Assert.Contains("hold-strip", lessonBody, StringComparison.Ordinal);
+        Assert.Contains("process-memory", lessonBody, StringComparison.Ordinal);
+        Assert.Contains("not catalog matching", lessonBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

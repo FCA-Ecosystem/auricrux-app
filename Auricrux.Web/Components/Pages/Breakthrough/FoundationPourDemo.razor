@@ -77,6 +77,20 @@
                     <div><dt>Lesson</dt><dd>@result.PedagogyLessonTopic</dd></div>
                 </dl>
                 <p class="pour-demo__reason">@result.PedagogyLesson</p>
+                @if (result.PedagogyRecorded)
+                {
+                    <p class="pour-demo__preds">Recorded in process memory as <code>@result.PedagogyLessonId</code>. Not Atlas. Not catalog matching.</p>
+                }
+            }
+            @if (result.PriorJobLessons.Count > 0)
+            {
+                <h3 class="pour-demo__subhead">Prior job-derived lessons (this process)</h3>
+                <ul>
+                    @foreach (var lesson in result.PriorJobLessons.Take(5))
+                    {
+                        <li><code>@lesson.ProposedAction</code> — @lesson.Topic</li>
+                    }
+                </ul>
             }
         </section>
 

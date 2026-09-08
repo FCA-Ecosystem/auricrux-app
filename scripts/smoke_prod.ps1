@@ -96,7 +96,17 @@ Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (ACI 305R)" {
     if ($r.pedagogySilence -eq $true) { throw "closed pour loop must not silence pedagogy" }
     if ($r.pedagogyProposedAction -ne "hold-strip") { throw "expected hold-strip, got $($r.pedagogyProposedAction)" }
     if ($r.pedagogyLesson -notmatch 'not catalog matching') { throw "expected job-derived lesson" }
-    "hypotheses=$($hyps.Count) recommended=$($r.recommendedApproach) action=$($r.pedagogyProposedAction)"
+    if ($r.pedagogyRecorded -ne $true) { throw "closed loop must record a field lesson" }
+    "hypotheses=$($hyps.Count) recommended=$($r.recommendedApproach) action=$($r.pedagogyProposedAction) lessonId=$($r.pedagogyLessonId)"
+}
+
+Invoke-SmokeCheck "GET /api/breakthrough/field-lessons (job-derived process memory)" {
+    $r = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/field-lessons?projectId=demo-foundation-pour" -Method Get -TimeoutSec 30
+    if ($r.count -lt 1) { throw "expected at least one field lesson" }
+    if ($r.durableStore -ne "process-memory") { throw "expected process-memory store" }
+    $hold = @($r.lessons) | Where-Object { $_.proposedAction -eq "hold-strip" }
+    if (-not $hold) { throw "expected hold-strip lesson in process memory" }
+    "count=$($r.count) store=$($r.durableStore)"
 }
 
 Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (incomplete prior silences)" {

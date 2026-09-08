@@ -213,6 +213,23 @@ public sealed class BreakthroughController(
         [FromBody] FoundationPourDemoOptions? options,
         CancellationToken cancellationToken)
         => Ok(await foundationPourDemo.RunStructuralAsync(options, cancellationToken));
+
+    /// <summary>
+    /// Job-derived field lessons in process memory. Not catalog matching. Not Atlas until configured.
+    /// </summary>
+    [HttpGet("field-lessons")]
+    public ActionResult<object> ListFieldLessons([FromQuery] string? projectId, [FromQuery] int limit = 20)
+    {
+        var lessons = foundationPourDemo.ListFieldLessons(projectId, limit);
+        return Ok(new
+        {
+            projectId,
+            durableStore = "process-memory",
+            catalogMatchIsNotSynthesis = true,
+            count = lessons.Count,
+            lessons
+        });
+    }
 }
 
 /// <summary>Request to generate competing hypotheses for a decision.</summary>

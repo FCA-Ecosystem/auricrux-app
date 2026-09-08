@@ -152,12 +152,14 @@ public sealed class FoundationPourDemoService
         PublishControlRecommendation(options, comparison, chosen, verification, proof);
 
         var loopClosed = verification.RequiresModelCorrection || meta.SystematicErrors.Count > 0;
-        var pedagogy = PedagogyActuator.FromPourLoop(
+        var pedagogy = ProposePedagogy(
+            options,
             incomplete: false,
             incompleteReason: null,
-            loopClosed: loopClosed,
-            requiresCorrection: verification.RequiresModelCorrection,
-            recommendedApproach: comparison.RecommendedApproach);
+            loopClosed,
+            verification.RequiresModelCorrection,
+            comparison.RecommendedApproach);
+        var lessonId = RecordPedagogy(options, comparison.DecisionId, pedagogy);
 
         return new FoundationPourDemoResult
         {
@@ -176,6 +178,10 @@ public sealed class FoundationPourDemoService
             PedagogyProposedAction = pedagogy.ProposedAction,
             PedagogyLessonTopic = pedagogy.FieldLessonTopic,
             PedagogyLesson = pedagogy.FieldLesson,
+            PedagogyLessonId = lessonId,
+            PedagogyRecorded = lessonId is not null,
+            PedagogyDurableStore = lessonId is null ? null : "process-memory",
+            PriorJobLessons = ListFieldLessons(options.ProjectId),
             Summary = BuildSummary(comparison, verification, meta, proof)
         };
     }
@@ -186,7 +192,7 @@ public sealed class FoundationPourDemoService
         || !string.IsNullOrWhiteSpace(options.DecisionId)
         || !string.IsNullOrWhiteSpace(options.VerificationId);
 
-    private static FoundationPourDemoResult SilenceIncomplete(
+    private FoundationPourDemoResult SilenceIncomplete(
         FoundationPourDemoOptions options,
         HypothesisComparison comparison)
     {
@@ -244,6 +250,10 @@ public sealed class FoundationPourDemoService
             PedagogyProposedAction = null,
             PedagogyLessonTopic = null,
             PedagogyLesson = null,
+            PedagogyLessonId = null,
+            PedagogyRecorded = false,
+            PedagogyDurableStore = null,
+            PriorJobLessons = ListFieldLessons(options.ProjectId),
             Summary = $"Incomplete prior; {comparison.Hypotheses.Count} hypotheses; field loop silenced. {reason}"
         };
     }
@@ -343,6 +353,52 @@ public sealed class FoundationPourDemoService
         }, ct);
     }
 
+    private static PedagogyActuator.PedagogyProposal ProposePedagogy(
+        FoundationPourDemoOptions options,
+        bool incomplete,
+        string? incompleteReason,
+        bool loopClosed,
+        bool requiresCorrection,
+        string recommendedApproach)
+    {
+        var steel = RequiredPhysicsInputs.IsSteelDeflectionDecision(options.ConstructionPhase, options.DecisionContext);
+        return steel
+            ? PedagogyActuator.FromSteelLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach)
+            : PedagogyActuator.FromPourLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach);
+    }
+
+    private string? RecordPedagogy(
+        FoundationPourDemoOptions options,
+        string decisionId,
+        PedagogyActuator.PedagogyProposal pedagogy)
+    {
+        if (pedagogy.Silence
+            || string.IsNullOrWhiteSpace(options.ProjectId)
+            || string.IsNullOrWhiteSpace(pedagogy.ProposedAction)
+            || string.IsNullOrWhiteSpace(pedagogy.FieldLesson))
+        {
+            return null;
+        }
+
+        var id = Guid.NewGuid().ToString("n");
+        _loop.AddFieldLesson(new FieldLessonRecord
+        {
+            LessonId = id,
+            ProjectId = options.ProjectId,
+            Slice = pedagogy.Slice,
+            ProposedAction = pedagogy.ProposedAction,
+            Topic = pedagogy.FieldLessonTopic ?? pedagogy.ProposedAction,
+            Lesson = pedagogy.FieldLesson,
+            SourceDecisionId = decisionId,
+            DurableStore = "process-memory",
+            CatalogMatchIsNotSynthesis = true
+        });
+        return id;
+    }
+
+    public IReadOnlyList<FieldLessonRecord> ListFieldLessons(string? projectId, int limit = 20) =>
+        _loop.ListFieldLessons(projectId, limit);
+
     private static string BuildSummary(
         HypothesisComparison comparison,
         PhysicalVerificationResult verification,
@@ -413,5 +469,9 @@ public sealed class FoundationPourDemoResult
     public string? PedagogyProposedAction { get; init; }
     public string? PedagogyLessonTopic { get; init; }
     public string? PedagogyLesson { get; init; }
+    public string? PedagogyLessonId { get; init; }
+    public bool PedagogyRecorded { get; init; }
+    public string? PedagogyDurableStore { get; init; }
+    public IReadOnlyList<FieldLessonRecord> PriorJobLessons { get; init; } = [];
     public required string Summary { get; init; }
 }

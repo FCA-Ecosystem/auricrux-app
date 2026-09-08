@@ -55,6 +55,9 @@ public sealed class FoundationPourSelfCorrectionTests
         Assert.False(result.PedagogySilence);
         Assert.Equal("hold-strip", result.PedagogyProposedAction);
         Assert.Contains("not catalog matching", result.PedagogyLesson, StringComparison.OrdinalIgnoreCase);
+        Assert.True(result.PedagogyRecorded);
+        Assert.False(string.IsNullOrWhiteSpace(result.PedagogyLessonId));
+        Assert.NotEmpty(loop.ListFieldLessons(projectId));
     }
 
     [Fact]
@@ -78,6 +81,8 @@ public sealed class FoundationPourSelfCorrectionTests
         Assert.Empty(loop.ListControlRecommendations(projectId));
         Assert.True(result.PedagogySilence);
         Assert.Null(result.PedagogyProposedAction);
+        Assert.False(result.PedagogyRecorded);
+        Assert.Empty(loop.ListFieldLessons(projectId));
     }
 
     [Fact]
