@@ -1,21 +1,15 @@
 name: Apple Platform Build
 
+# macOS runners bill at 10x Linux minutes. Do not auto-run on push/PR.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'Auricrux.Mobile/**'
-      - 'Auricrux.Shared/**'
-      - 'Directory.Build.props'
-      - '.github/workflows/apple-build.yml'
-  pull_request:
-    paths:
-      - 'Auricrux.Mobile/**'
-      - 'Auricrux.Shared/**'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ios-maccatalyst:

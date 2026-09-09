@@ -7,7 +7,9 @@ name: Production Smoke
 #   3. the documented custom domain
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    # Daily, not every 6 hours. The 6-hour cadence was ~180 min/week, mostly
+    # failures still consuming a full smoke run.
+    - cron: '0 12 * * *'
   workflow_dispatch:
     inputs:
       base_url:
@@ -16,6 +18,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   smoke:

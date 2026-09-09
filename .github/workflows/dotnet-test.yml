@@ -3,8 +3,29 @@ name: .NET Test
 on:
   push:
     branches: [main]
+    paths:
+      - 'Auricrux.Web/**'
+      - 'Auricrux.Shared/**'
+      - 'Auricrux.Tests/**'
+      - 'AuricruxApp.sln'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - '.github/workflows/dotnet-test.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'Auricrux.Web/**'
+      - 'Auricrux.Shared/**'
+      - 'Auricrux.Tests/**'
+      - 'AuricruxApp.sln'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - '.github/workflows/dotnet-test.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:

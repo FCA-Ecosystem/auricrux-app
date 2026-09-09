@@ -9,14 +9,12 @@ on:
       - 'Auricrux.Web/**'
       - 'Auricrux.Shared/**'
       - '.github/workflows/docker-build.yml'
-  pull_request:
-    paths:
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'Auricrux.Web/**'
-      - 'Auricrux.Shared/**'
-      - '.github/workflows/docker-build.yml'
+  # PRs already run .NET Test. Docker image build on every PR duplicated minutes.
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -106,4 +104,4 @@ jobs:
           echo "### Docker Build Result" >> "$GITHUB_STEP_SUMMARY"
           echo "- Image built from root \`Dockerfile\`: **success**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Pushed to registry: **${{ steps.registry.outputs.push }}**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Smoke test (\`/health\`): **passed**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Smoke test (`/health`): **passed**" >> "$GITHUB_STEP_SUMMARY"
