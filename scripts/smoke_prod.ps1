@@ -109,6 +109,17 @@ Invoke-SmokeCheck "GET /api/breakthrough/field-lessons (job-derived process memo
     "count=$($r.count) store=$($r.durableStore)"
 }
 
+Invoke-SmokeCheck "GET /api/breakthrough/textbook-corpus (Academy textbook Atlas ingest)" {
+    $r = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/textbook-corpus?q=Focus%20Four" -Method Get -TimeoutSec 30
+    if ($r.catalogActuated -eq $true) { throw "textbook retrieval must not claim catalog actuation" }
+    if ($r.pmOrFinanceMutated -eq $true) { throw "textbook retrieval must not claim PM/finance mutation" }
+    if ($r.configured -eq $true) {
+        if ($r.count -lt 738) { throw "expected at least 738 academy-textbook chunks, got $($r.count)" }
+        if (-not $r.hits -or @($r.hits).Count -lt 1) { throw "Focus Four must retrieve at least one textbook hit" }
+    }
+    "count=$($r.count) hits=$(@($r.hits).Count) store=$($r.durableStore)"
+}
+
 Invoke-SmokeCheck "POST /api/breakthrough/act (proof-gated pour-control hold)" {
     $pour = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/demo/foundation-pour" -Method Post -Body '{}' -ContentType "application/json" -TimeoutSec 60
     $decisionId = $pour.decisionId

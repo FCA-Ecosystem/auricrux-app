@@ -59,6 +59,10 @@ public sealed class AtlasService : IDisposable
     public IMongoCollection<BsonDocument> Corpus =>
         _db!.GetCollection<BsonDocument>("corpus");
 
+    /// <summary>RAG knowledge chunks, including Academy textbook ingest (`domain=academy-textbook`).</summary>
+    public IMongoCollection<BsonDocument> Chunks =>
+        _db!.GetCollection<BsonDocument>("chunks");
+
     public IMongoCollection<BsonDocument> Memory =>
         _db!.GetCollection<BsonDocument>("conversation_memory");
 

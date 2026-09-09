@@ -40,6 +40,7 @@ builder.Services.AddHttpClient("FcaEcosystem", client =>
 // Atlas services — registered before any service that depends on them
 builder.Services.AddSingleton<AtlasService>();
 builder.Services.AddSingleton<AtlasCorpusService>();
+builder.Services.AddSingleton<TextbookCorpusService>();
 builder.Services.AddSingleton<AuricruxModelRouter>();
 
 builder.Services.AddSingleton<ConstructionIntelligenceService>();

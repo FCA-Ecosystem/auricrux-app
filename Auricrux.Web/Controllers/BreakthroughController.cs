@@ -1,3 +1,4 @@
+using Auricrux.Web.Services;
 using Auricrux.Web.Services.Breakthrough;
 using Auricrux.Web.Services.PhaseII;
 using Microsoft.AspNetCore.Mvc;
@@ -18,6 +19,7 @@ public sealed class BreakthroughController(
     ProvableReasoningService reasoningService,
     FoundationPourDemoService foundationPourDemo,
     PedagogyActService pedagogyAct,
+    TextbookCorpusService textbookCorpus,
     ILogger<BreakthroughController> logger) : ControllerBase
 {
     /// <summary>
@@ -323,6 +325,34 @@ public sealed class BreakthroughController(
             fieldLessons = status.FieldLessons,
             pourControls = status.PourControls,
             erectionControls = status.ErectionControls,
+            textbookChunks = status.TextbookChunks,
+            pmOrFinanceMutated = false
+        });
+    }
+
+    /// <summary>
+    /// Claude-authored Academy textbook chunks in Atlas. Retrieval only.
+    /// Does not actuate Academy catalog or CTE credentials.
+    /// </summary>
+    [HttpGet("textbook-corpus")]
+    public async Task<ActionResult<object>> GetTextbookCorpus(
+        [FromQuery] string? q,
+        CancellationToken cancellationToken)
+    {
+        var status = await textbookCorpus.GetStatusAsync(cancellationToken);
+        IReadOnlyList<TextbookCorpusHit> hits = [];
+        if (!string.IsNullOrWhiteSpace(q))
+            hits = await textbookCorpus.SearchAsync(q, 5, cancellationToken);
+        return Ok(new
+        {
+            configured = status.Configured,
+            status = status.Status,
+            durableStore = status.Configured ? BreakthroughLoopStore.AtlasDurableStore : "not_configured",
+            domain = TextbookCorpusService.Domain,
+            count = status.Count,
+            query = q ?? "",
+            hits,
+            catalogActuated = false,
             pmOrFinanceMutated = false
         });
     }

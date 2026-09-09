@@ -19,6 +19,7 @@ public sealed class ConstructionIntelligenceService
     private readonly ILogger<ConstructionIntelligenceService> _logger;
     private readonly List<ConstructionKnowledgeEntry> _corpus;
     private readonly AtlasCorpusService _atlasCorpus;
+    private readonly TextbookCorpusService _textbookCorpus;
     private readonly AtlasService _atlas;
     private readonly AuricruxModelRouter _router;
     private readonly ContextAwareGuidanceService? _contextService;
@@ -31,6 +32,7 @@ public sealed class ConstructionIntelligenceService
         ILogger<ConstructionIntelligenceService> logger,
         IHostEnvironment env,
         AtlasCorpusService atlasCorpus,
+        TextbookCorpusService textbookCorpus,
         AtlasService atlas,
         AuricruxModelRouter router,
         ContextAwareGuidanceService? contextService = null)
@@ -39,6 +41,7 @@ public sealed class ConstructionIntelligenceService
         _config = config;
         _logger = logger;
         _atlasCorpus = atlasCorpus;
+        _textbookCorpus = textbookCorpus;
         _atlas = atlas;
         _router = router;
         _contextService = contextService;
@@ -143,6 +146,13 @@ public sealed class ConstructionIntelligenceService
         else
         {
             sources = SearchInternal(request.Query, request.SearchScope, take: 5);
+        }
+
+        if (_textbookCorpus.IsAtlasActive)
+        {
+            var textbookHits = await _textbookCorpus.SearchAsSourcesAsync(request.Query, take: 3, ct);
+            if (textbookHits.Count > 0)
+                sources = sources.Concat(textbookHits).ToList();
         }
 
         var thinking = await ThinkAsync(new ThinkingRequest { Query = request.Query, Mode = request.ThinkingMode }, resolvedModel, ct);

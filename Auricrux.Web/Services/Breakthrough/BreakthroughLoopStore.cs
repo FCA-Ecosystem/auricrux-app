@@ -382,7 +382,7 @@ public sealed class BreakthroughLoopStore
     public async Task<NsfAtlasDurabilityStatus> GetDurabilityStatusAsync(CancellationToken ct = default)
     {
         if (!AtlasConfigured)
-            return new NsfAtlasDurabilityStatus(false, "not_configured", 0, 0, 0, 0);
+            return new NsfAtlasDurabilityStatus(false, "not_configured", 0, 0, 0, 0, 0);
         try
         {
             var db = _atlas!.Database!;
@@ -390,11 +390,14 @@ public sealed class BreakthroughLoopStore
             var lessons = await db.GetCollection<BsonDocument>(FieldLessonsCollection).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct);
             var pours = await db.GetCollection<BsonDocument>(PourControlsCollection).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct);
             var erections = await db.GetCollection<BsonDocument>(ErectionControlsCollection).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct);
-            return new NsfAtlasDurabilityStatus(true, "ok", comparisons, lessons, pours, erections);
+            var textbooks = await db.GetCollection<BsonDocument>("chunks").CountDocumentsAsync(
+                Builders<BsonDocument>.Filter.Eq("domain", "academy-textbook"),
+                cancellationToken: ct);
+            return new NsfAtlasDurabilityStatus(true, "ok", comparisons, lessons, pours, erections, textbooks);
         }
         catch
         {
-            return new NsfAtlasDurabilityStatus(true, "unreachable", 0, 0, 0, 0);
+            return new NsfAtlasDurabilityStatus(true, "unreachable", 0, 0, 0, 0, 0);
         }
     }
 
@@ -423,7 +426,8 @@ public sealed record NsfAtlasDurabilityStatus(
     long HypothesisComparisons,
     long FieldLessons,
     long PourControls,
-    long ErectionControls);
+    long ErectionControls,
+    long TextbookChunks = 0);
 
 /// <summary>
 /// Actionable control item derived from a closed breakthrough loop — not a job-cost mutation.

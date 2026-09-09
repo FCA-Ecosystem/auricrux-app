@@ -464,6 +464,22 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
         Assert.False(doc.RootElement.GetProperty("configured").GetBoolean());
         Assert.Equal("not_configured", doc.RootElement.GetProperty("status").GetString());
         Assert.False(doc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+        Assert.Equal(0, doc.RootElement.GetProperty("textbookChunks").GetInt64());
+    }
+
+    [Fact]
+    public async Task Textbook_corpus_is_empty_without_atlas()
+    {
+        var response = await _client.GetAsync("/api/breakthrough/textbook-corpus?q=Focus%20Four");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.False(doc.RootElement.GetProperty("configured").GetBoolean());
+        Assert.Equal("not_configured", doc.RootElement.GetProperty("status").GetString());
+        Assert.Equal(0, doc.RootElement.GetProperty("count").GetInt64());
+        Assert.Equal("academy-textbook", doc.RootElement.GetProperty("domain").GetString());
+        Assert.False(doc.RootElement.GetProperty("catalogActuated").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+        Assert.Equal(0, doc.RootElement.GetProperty("hits").GetArrayLength());
     }
 
     [Fact]
