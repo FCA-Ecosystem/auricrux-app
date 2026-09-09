@@ -152,7 +152,15 @@ public sealed class FoundationPourDemoService
         PublishControlRecommendation(options, comparison, chosen, verification, proof);
 
         var loopClosed = verification.RequiresModelCorrection || meta.SystematicErrors.Count > 0;
+        var steel = RequiredPhysicsInputs.IsSteelDeflectionDecision(options.ConstructionPhase, options.DecisionContext);
         var priorAction = ListFieldLessons(options.ProjectId, 1).FirstOrDefault()?.ProposedAction;
+        var existingPour = _loop.GetPourControl(options.ProjectId);
+        var existingErection = _loop.GetErectionControl(options.ProjectId);
+        var holdInForce = steel
+            ? existingErection?.HoldActive == true
+            : existingPour?.HoldActive == true;
+        var heldDays = steel ? existingErection?.CurrentErectionDays : existingPour?.CurrentStripDays;
+        var baselineDays = steel ? existingErection?.BaselineErectionDays : existingPour?.BaselineStripDays;
         var pedagogy = ProposePedagogy(
             options,
             incomplete: false,
@@ -160,7 +168,10 @@ public sealed class FoundationPourDemoService
             loopClosed,
             verification.RequiresModelCorrection,
             comparison.RecommendedApproach,
-            priorAction);
+            priorAction,
+            holdInForce,
+            heldDays,
+            baselineDays);
         var lessonId = RecordPedagogy(options, comparison.DecisionId, pedagogy);
 
         return new FoundationPourDemoResult
@@ -184,8 +195,14 @@ public sealed class FoundationPourDemoService
             PedagogyRecorded = lessonId is not null,
             PedagogyDurableStore = lessonId is null ? null : "process-memory",
             PedagogyPriorLessonConfirmed = pedagogy.PriorLessonConfirmed,
+            PedagogyHoldStillInForce = pedagogy.HoldStillInForce,
             PriorJobLessons = ListFieldLessons(options.ProjectId),
-            PourControl = _loop.EnsurePourControl(options.ProjectId, options.ExpectedStripDays),
+            PourControl = steel
+                ? _loop.GetPourControl(options.ProjectId)
+                : _loop.EnsurePourControl(options.ProjectId, options.ExpectedStripDays),
+            ErectionControl = steel
+                ? _loop.EnsureErectionControl(options.ProjectId)
+                : _loop.GetErectionControl(options.ProjectId),
             Summary = BuildSummary(comparison, verification, meta, proof)
         };
     }
@@ -258,8 +275,10 @@ public sealed class FoundationPourDemoService
             PedagogyRecorded = false,
             PedagogyDurableStore = null,
             PedagogyPriorLessonConfirmed = false,
+            PedagogyHoldStillInForce = false,
             PriorJobLessons = ListFieldLessons(options.ProjectId),
             PourControl = _loop.GetPourControl(options.ProjectId),
+            ErectionControl = _loop.GetErectionControl(options.ProjectId),
             Summary = $"Incomplete prior; {comparison.Hypotheses.Count} hypotheses; field loop silenced. {reason}"
         };
     }
@@ -347,8 +366,13 @@ public sealed class FoundationPourDemoService
         CancellationToken ct = default)
     {
         options ??= new FoundationPourDemoOptions();
+        var projectId = string.IsNullOrWhiteSpace(options.ProjectId)
+            || string.Equals(options.ProjectId, BreakthroughLoopStore.DefaultPourProjectId, StringComparison.OrdinalIgnoreCase)
+            ? BreakthroughLoopStore.DefaultSteelProjectId
+            : options.ProjectId.Trim();
         return RunAsync(options with
         {
+            ProjectId = projectId,
             ScenarioName = "Structural steel erection — deflection-checked self-correction",
             DecisionContext = "Steel erection sequence for a simply supported beam, check L/360 live-load deflection.",
             ConstructionPhase = "structural",
@@ -366,12 +390,15 @@ public sealed class FoundationPourDemoService
         bool loopClosed,
         bool requiresCorrection,
         string recommendedApproach,
-        string? priorProposedAction)
+        string? priorProposedAction,
+        bool holdAlreadyInForce = false,
+        int? heldDays = null,
+        int? baselineDays = null)
     {
         var steel = RequiredPhysicsInputs.IsSteelDeflectionDecision(options.ConstructionPhase, options.DecisionContext);
         return steel
-            ? PedagogyActuator.FromSteelLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach, priorProposedAction)
-            : PedagogyActuator.FromPourLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach, priorProposedAction);
+            ? PedagogyActuator.FromSteelLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach, priorProposedAction, holdAlreadyInForce, heldDays, baselineDays)
+            : PedagogyActuator.FromPourLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach, priorProposedAction, holdAlreadyInForce, heldDays, baselineDays);
     }
 
     private string? RecordPedagogy(
@@ -408,6 +435,9 @@ public sealed class FoundationPourDemoService
 
     public PourControlRecord? GetPourControl(string? projectId) =>
         _loop.GetPourControl(projectId);
+
+    public ErectionControlRecord? GetErectionControl(string? projectId) =>
+        _loop.GetErectionControl(projectId);
 
     private static string BuildSummary(
         HypothesisComparison comparison,
@@ -483,7 +513,9 @@ public sealed class FoundationPourDemoResult
     public bool PedagogyRecorded { get; init; }
     public string? PedagogyDurableStore { get; init; }
     public bool PedagogyPriorLessonConfirmed { get; init; }
+    public bool PedagogyHoldStillInForce { get; init; }
     public IReadOnlyList<FieldLessonRecord> PriorJobLessons { get; init; } = [];
     public PourControlRecord? PourControl { get; init; }
+    public ErectionControlRecord? ErectionControl { get; init; }
     public required string Summary { get; init; }
 }

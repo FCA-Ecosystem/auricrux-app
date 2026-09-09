@@ -276,6 +276,25 @@ public sealed class BreakthroughController(
             control
         });
     }
+
+    /// <summary>
+    /// Auricrux steel erection-control date. Not a PM schedule row.
+    /// </summary>
+    [HttpGet("erection-control")]
+    public ActionResult<object> GetErectionControl([FromQuery] string? projectId)
+    {
+        var control = pedagogyAct.GetErectionControl(projectId);
+        return Ok(new
+        {
+            projectId = string.IsNullOrWhiteSpace(projectId)
+                ? BreakthroughLoopStore.DefaultSteelProjectId
+                : projectId,
+            durableStore = "process-memory",
+            mutationTarget = BreakthroughLoopStore.ErectionControlMutationTarget,
+            pmOrFinanceMutated = false,
+            control
+        });
+    }
 }
 
 /// <summary>Request to generate competing hypotheses for a decision.</summary>

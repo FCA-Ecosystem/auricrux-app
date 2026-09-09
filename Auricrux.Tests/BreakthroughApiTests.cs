@@ -367,6 +367,92 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
         using var controlDoc = System.Text.Json.JsonDocument.Parse(await control.Content.ReadAsStringAsync());
         Assert.True(controlDoc.RootElement.GetProperty("control").GetProperty("holdActive").GetBoolean());
         Assert.False(controlDoc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+
+        var proceed = await _client.PostAsJsonAsync("/api/breakthrough/act", new
+        {
+            action = "proceed-strip",
+            slice = "foundation-pour",
+            projectId,
+            humanAccepted = true,
+            decisionId,
+            verificationId
+        });
+        Assert.Equal(HttpStatusCode.OK, proceed.StatusCode);
+        using var proceedDoc = System.Text.Json.JsonDocument.Parse(await proceed.Content.ReadAsStringAsync());
+        Assert.True(proceedDoc.RootElement.GetProperty("accepted").GetBoolean());
+        Assert.True(proceedDoc.RootElement.GetProperty("mutationApplied").GetBoolean());
+        Assert.False(proceedDoc.RootElement.GetProperty("holdActive").GetBoolean());
+        Assert.Equal(
+            proceedDoc.RootElement.GetProperty("baselineStripDays").GetInt32(),
+            proceedDoc.RootElement.GetProperty("currentStripDays").GetInt32());
+        Assert.False(proceedDoc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+
+        var restored = await _client.GetAsync($"/api/breakthrough/pour-control?projectId={projectId}");
+        using var restoredDoc = System.Text.Json.JsonDocument.Parse(await restored.Content.ReadAsStringAsync());
+        Assert.False(restoredDoc.RootElement.GetProperty("control").GetProperty("holdActive").GetBoolean());
+        Assert.Equal(
+            restoredDoc.RootElement.GetProperty("control").GetProperty("baselineStripDays").GetInt32(),
+            restoredDoc.RootElement.GetProperty("control").GetProperty("currentStripDays").GetInt32());
+    }
+
+    [Fact]
+    public async Task Pedagogy_act_holds_erection_control_date()
+    {
+        var projectId = $"nsf-steel-{Guid.NewGuid():N}";
+        var demo = await _client.PostAsJsonAsync("/api/breakthrough/demo/structural-steel", new
+        {
+            projectId,
+            seedAdditionalVerifications = 10
+        });
+        Assert.Equal(HttpStatusCode.OK, demo.StatusCode);
+        using var demoDoc = System.Text.Json.JsonDocument.Parse(await demo.Content.ReadAsStringAsync());
+        var root = demoDoc.RootElement;
+        var decisionId = root.GetProperty("decisionId").GetString();
+        var verificationId = root.GetProperty("verification").GetProperty("verificationId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(decisionId));
+        Assert.False(string.IsNullOrWhiteSpace(verificationId));
+        Assert.False(root.GetProperty("erectionControl").GetProperty("holdActive").GetBoolean());
+
+        var denied = await _client.PostAsJsonAsync("/api/breakthrough/act", new
+        {
+            action = "hold-erection",
+            slice = "steel",
+            projectId,
+            humanAccepted = false,
+            decisionId,
+            verificationId
+        });
+        using var deniedDoc = System.Text.Json.JsonDocument.Parse(await denied.Content.ReadAsStringAsync());
+        Assert.False(deniedDoc.RootElement.GetProperty("accepted").GetBoolean());
+        Assert.False(deniedDoc.RootElement.GetProperty("mutationApplied").GetBoolean());
+
+        var ok = await _client.PostAsJsonAsync("/api/breakthrough/act", new
+        {
+            action = "hold-erection",
+            slice = "steel",
+            projectId,
+            humanAccepted = true,
+            decisionId,
+            verificationId
+        });
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        using var okDoc = System.Text.Json.JsonDocument.Parse(await ok.Content.ReadAsStringAsync());
+        Assert.True(okDoc.RootElement.GetProperty("accepted").GetBoolean());
+        Assert.True(okDoc.RootElement.GetProperty("mutationApplied").GetBoolean());
+        Assert.True(okDoc.RootElement.GetProperty("erectionControlMutated").GetBoolean());
+        Assert.False(okDoc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+        Assert.Equal("erection-control-process-memory", okDoc.RootElement.GetProperty("mutationTarget").GetString());
+        Assert.True(okDoc.RootElement.GetProperty("holdActive").GetBoolean());
+        Assert.Equal(0, okDoc.RootElement.GetProperty("baselineErectionDays").GetInt32());
+        Assert.Equal(2, okDoc.RootElement.GetProperty("currentErectionDays").GetInt32());
+
+        var control = await _client.GetAsync($"/api/breakthrough/erection-control?projectId={projectId}");
+        Assert.Equal(HttpStatusCode.OK, control.StatusCode);
+        using var controlDoc = System.Text.Json.JsonDocument.Parse(await control.Content.ReadAsStringAsync());
+        Assert.True(controlDoc.RootElement.GetProperty("control").GetProperty("holdActive").GetBoolean());
+        Assert.Equal(2, controlDoc.RootElement.GetProperty("control").GetProperty("currentErectionDays").GetInt32());
+        Assert.False(controlDoc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+        Assert.Equal("erection-control-process-memory", controlDoc.RootElement.GetProperty("mutationTarget").GetString());
     }
 
     [Fact]

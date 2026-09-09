@@ -17,10 +17,14 @@ public sealed class BreakthroughLoopStore
     private readonly ConcurrentBag<FieldLessonRecord> _fieldLessons = [];
     private readonly ConcurrentBag<PedagogyActRecord> _pedagogyActs = [];
     private readonly ConcurrentDictionary<string, PourControlRecord> _pourControls = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ErectionControlRecord> _erectionControls = new(StringComparer.OrdinalIgnoreCase);
 
     public const int HoldStripExtraDays = 3;
+    public const int HoldErectionExtraDays = 2;
     public const string PourControlMutationTarget = "pour-control-process-memory";
+    public const string ErectionControlMutationTarget = "erection-control-process-memory";
     public const string DefaultPourProjectId = "demo-foundation-pour";
+    public const string DefaultSteelProjectId = "demo-structural-steel";
 
     public void CacheComparison(HypothesisComparison comparison)
     {
@@ -133,8 +137,44 @@ public sealed class BreakthroughLoopStore
             (_, existing) => existing.WithProceed(actId));
     }
 
+    public ErectionControlRecord? GetErectionControl(string? projectId)
+    {
+        var key = NormalizeSteelProjectId(projectId);
+        return _erectionControls.TryGetValue(key, out var row) ? row : null;
+    }
+
+    public ErectionControlRecord EnsureErectionControl(string? projectId)
+    {
+        var key = NormalizeSteelProjectId(projectId);
+        return _erectionControls.AddOrUpdate(
+            key,
+            _ => ErectionControlRecord.Create(key, hold: false, actId: null),
+            (_, existing) => existing);
+    }
+
+    public ErectionControlRecord HoldErection(string? projectId, string actId)
+    {
+        var key = NormalizeSteelProjectId(projectId);
+        return _erectionControls.AddOrUpdate(
+            key,
+            _ => ErectionControlRecord.Create(key, hold: true, actId),
+            (_, existing) => existing.WithHold(actId));
+    }
+
+    public ErectionControlRecord ProceedErection(string? projectId, string actId)
+    {
+        var key = NormalizeSteelProjectId(projectId);
+        return _erectionControls.AddOrUpdate(
+            key,
+            _ => ErectionControlRecord.Create(key, hold: false, actId),
+            (_, existing) => existing.WithProceed(actId));
+    }
+
     private static string NormalizeProjectId(string? projectId) =>
         string.IsNullOrWhiteSpace(projectId) ? DefaultPourProjectId : projectId.Trim();
+
+    private static string NormalizeSteelProjectId(string? projectId) =>
+        string.IsNullOrWhiteSpace(projectId) ? DefaultSteelProjectId : projectId.Trim();
 }
 
 /// <summary>
@@ -240,6 +280,68 @@ public sealed record PourControlRecord
             CurrentStripDays = BaselineStripDays,
             HoldActive = false,
             CurrentStripAtUtc = PourAtUtc.AddDays(BaselineStripDays),
+            LastActId = actId,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+}
+
+/// <summary>
+/// Auricrux-owned steel erection control. Not a PM schedule row and not a finance table.
+/// A proof-gated hold-erection moves CurrentErectionAtUtc; Atlas is not required.
+/// </summary>
+public sealed record ErectionControlRecord
+{
+    public required string ProjectId { get; init; }
+    public required int BaselineErectionDays { get; init; }
+    public required int CurrentErectionDays { get; init; }
+    public required bool HoldActive { get; init; }
+    public required DateTime PlannedAtUtc { get; init; }
+    public required DateTime PlannedErectionAtUtc { get; init; }
+    public required DateTime CurrentErectionAtUtc { get; init; }
+    public string MutationTarget { get; init; } = BreakthroughLoopStore.ErectionControlMutationTarget;
+    public bool PmOrFinanceMutated { get; init; }
+    public string? LastActId { get; init; }
+    public DateTime UpdatedAtUtc { get; init; } = DateTime.UtcNow;
+
+    public static ErectionControlRecord Create(string projectId, bool hold, string? actId)
+    {
+        var plannedAt = DateTime.UtcNow;
+        const int baseline = 0;
+        var current = hold ? baseline + BreakthroughLoopStore.HoldErectionExtraDays : baseline;
+        return new ErectionControlRecord
+        {
+            ProjectId = projectId,
+            BaselineErectionDays = baseline,
+            CurrentErectionDays = current,
+            HoldActive = hold,
+            PlannedAtUtc = plannedAt,
+            PlannedErectionAtUtc = plannedAt.AddDays(baseline),
+            CurrentErectionAtUtc = plannedAt.AddDays(current),
+            LastActId = actId,
+            PmOrFinanceMutated = false,
+            UpdatedAtUtc = plannedAt
+        };
+    }
+
+    public ErectionControlRecord WithHold(string actId)
+    {
+        var current = BaselineErectionDays + BreakthroughLoopStore.HoldErectionExtraDays;
+        return this with
+        {
+            CurrentErectionDays = current,
+            HoldActive = true,
+            CurrentErectionAtUtc = PlannedAtUtc.AddDays(current),
+            LastActId = actId,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+    }
+
+    public ErectionControlRecord WithProceed(string actId) =>
+        this with
+        {
+            CurrentErectionDays = BaselineErectionDays,
+            HoldActive = false,
+            CurrentErectionAtUtc = PlannedAtUtc.AddDays(BaselineErectionDays),
             LastActId = actId,
             UpdatedAtUtc = DateTime.UtcNow
         };

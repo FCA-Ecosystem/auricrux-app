@@ -144,7 +144,50 @@ Invoke-SmokeCheck "POST /api/breakthrough/act (proof-gated pour-control hold)" {
     if ($ok.currentStripDays -le $ok.baselineStripDays) { throw "held strip days must be later than baseline" }
     $control = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/pour-control?projectId=demo-foundation-pour" -Method Get -TimeoutSec 30
     if ($control.control.holdActive -ne $true) { throw "GET pour-control must show an active hold" }
-    "accepted=$($ok.accepted) mutationApplied=$($ok.mutationApplied) target=$($ok.mutationTarget) days=$($ok.currentStripDays) actId=$($ok.actId)"
+
+    $proceedBody = @{
+        action = "proceed-strip"
+        slice = "foundation-pour"
+        projectId = "demo-foundation-pour"
+        humanAccepted = $true
+        decisionId = $decisionId
+        verificationId = $verificationId
+    } | ConvertTo-Json
+    $proceed = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/act" -Method Post -Body $proceedBody -ContentType "application/json" -TimeoutSec 30
+    if ($proceed.accepted -ne $true) { throw "proceed-strip with humanAccepted should be accepted: $($proceed.reason)" }
+    if ($proceed.holdActive -eq $true) { throw "proceed-strip must clear holdActive" }
+    if ($proceed.currentStripDays -ne $proceed.baselineStripDays) { throw "proceed-strip must restore baseline strip days" }
+    if ($proceed.pmOrFinanceMutated -eq $true) { throw "proceed-strip must not mutate PM/finance" }
+    $restored = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/pour-control?projectId=demo-foundation-pour" -Method Get -TimeoutSec 30
+    if ($restored.control.holdActive -eq $true) { throw "GET pour-control must show hold off after proceed-strip" }
+    "accepted=$($ok.accepted) mutationApplied=$($ok.mutationApplied) target=$($ok.mutationTarget) days=$($ok.currentStripDays) restored=$($proceed.currentStripDays) actId=$($ok.actId)"
+}
+
+Invoke-SmokeCheck "POST /api/breakthrough/act (proof-gated erection-control hold)" {
+    $steel = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/demo/structural-steel" -Method Post -Body '{"projectId":"demo-structural-steel","seedAdditionalVerifications":10}' -ContentType "application/json" -TimeoutSec 60
+    $decisionId = $steel.decisionId
+    $verificationId = $steel.verification.verificationId
+    if (-not $decisionId -or -not $verificationId) { throw "steel demo missing decisionId/verificationId for act" }
+
+    $okBody = @{
+        action = "hold-erection"
+        slice = "steel"
+        projectId = "demo-structural-steel"
+        humanAccepted = $true
+        decisionId = $decisionId
+        verificationId = $verificationId
+    } | ConvertTo-Json
+    $ok = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/act" -Method Post -Body $okBody -ContentType "application/json" -TimeoutSec 30
+    if ($ok.accepted -ne $true) { throw "proof-gated hold-erection should be accepted: $($ok.reason)" }
+    if ($ok.pmOrFinanceMutated -eq $true) { throw "erection-control act must not mutate PM/finance" }
+    if ($ok.mutationApplied -ne $true) { throw "hold-erection must apply erection-control mutation" }
+    if ($ok.mutationTarget -ne "erection-control-process-memory") { throw "unexpected mutationTarget $($ok.mutationTarget)" }
+    if ($ok.holdActive -ne $true) { throw "hold-erection must set holdActive" }
+    if ($ok.currentErectionDays -le $ok.baselineErectionDays) { throw "held erection days must be later than baseline" }
+    $control = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/erection-control?projectId=demo-structural-steel" -Method Get -TimeoutSec 30
+    if ($control.control.holdActive -ne $true) { throw "GET erection-control must show an active hold" }
+    if ($control.pmOrFinanceMutated -eq $true) { throw "erection-control must not claim PM/finance mutation" }
+    "accepted=$($ok.accepted) target=$($ok.mutationTarget) days=$($ok.currentErectionDays) actId=$($ok.actId)"
 }
 
 Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (incomplete prior silences)" {

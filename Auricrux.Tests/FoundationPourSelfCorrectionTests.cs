@@ -80,6 +80,38 @@ public sealed class FoundationPourSelfCorrectionTests
         Assert.False(held.PmOrFinanceMutated);
         var again = loop.HoldStrip(projectId, "act-hold-2");
         Assert.Equal(held.CurrentStripDays, again.CurrentStripDays);
+
+        var stillHeld = await demo.RunAsync(new FoundationPourDemoOptions
+        {
+            SeedAdditionalVerifications = 10,
+            ProjectId = projectId
+        });
+        Assert.True(stillHeld.PedagogyHoldStillInForce);
+        Assert.StartsWith("Hold still in force:", stillHeld.PedagogyLessonTopic);
+        Assert.Contains("Still not unique synthesis", stillHeld.PedagogyLesson, StringComparison.Ordinal);
+
+        var released = loop.ProceedStrip(projectId, "act-proceed");
+        Assert.False(released.HoldActive);
+        Assert.Equal(released.BaselineStripDays, released.CurrentStripDays);
+
+        var steelId = $"test-steel-{Guid.NewGuid():N}";
+        var steel = await demo.RunStructuralAsync(new FoundationPourDemoOptions
+        {
+            SeedAdditionalVerifications = 10,
+            ProjectId = steelId
+        });
+        Assert.NotNull(steel.ErectionControl);
+        Assert.False(steel.ErectionControl!.HoldActive);
+        Assert.Equal(0, steel.ErectionControl.CurrentErectionDays);
+        Assert.Null(steel.PourControl);
+
+        var erectionHeld = loop.HoldErection(steelId, "act-erection");
+        Assert.True(erectionHeld.HoldActive);
+        Assert.Equal(BreakthroughLoopStore.HoldErectionExtraDays, erectionHeld.CurrentErectionDays);
+        Assert.False(erectionHeld.PmOrFinanceMutated);
+        Assert.Equal(BreakthroughLoopStore.ErectionControlMutationTarget, erectionHeld.MutationTarget);
+        var erectionAgain = loop.HoldErection(steelId, "act-erection-2");
+        Assert.Equal(erectionHeld.CurrentErectionDays, erectionAgain.CurrentErectionDays);
     }
 
     [Fact]

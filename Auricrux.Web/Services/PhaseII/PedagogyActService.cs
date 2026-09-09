@@ -6,6 +6,7 @@ namespace Auricrux.Web.Services.PhaseII;
 /// <summary>
 /// Proof-gated pour/steel act on the live NSF host.
 /// hold-strip / proceed-strip mutate Auricrux pour-control process memory only.
+/// hold-erection / proceed-erection mutate Auricrux erection-control process memory only.
 /// Never mutates PM schedule or finance tables.
 /// </summary>
 public sealed class PedagogyActService
@@ -40,6 +41,9 @@ public sealed class PedagogyActService
     public PourControlRecord? GetPourControl(string? projectId) =>
         _loop.GetPourControl(projectId);
 
+    public ErectionControlRecord? GetErectionControl(string? projectId) =>
+        _loop.GetErectionControl(projectId);
+
     public PedagogyActResult Execute(PedagogyActRequest request)
     {
         var slice = (request.Slice ?? "").Trim();
@@ -64,23 +68,41 @@ public sealed class PedagogyActService
 
         var id = Guid.NewGuid().ToString("n");
         var projectId = string.IsNullOrWhiteSpace(request.ProjectId)
-            ? BreakthroughLoopStore.DefaultPourProjectId
+            ? (IsSteelSlice(slice) ? BreakthroughLoopStore.DefaultSteelProjectId : BreakthroughLoopStore.DefaultPourProjectId)
             : request.ProjectId.Trim();
-        PourControlRecord? control = null;
+        PourControlRecord? pour = null;
+        ErectionControlRecord? erection = null;
         var pourMutated = false;
+        var erectionMutated = false;
         if (IsHoldStrip(action, slice))
         {
-            control = _loop.HoldStrip(projectId, id);
+            pour = _loop.HoldStrip(projectId, id);
             pourMutated = true;
         }
         else if (IsProceedStrip(action, slice))
         {
-            control = _loop.ProceedStrip(projectId, id);
+            pour = _loop.ProceedStrip(projectId, id);
             pourMutated = true;
         }
+        else if (IsHoldErection(action, slice))
+        {
+            erection = _loop.HoldErection(projectId, id);
+            erectionMutated = true;
+        }
+        else if (IsProceedErection(action, slice))
+        {
+            erection = _loop.ProceedErection(projectId, id);
+            erectionMutated = true;
+        }
 
-        var reason = pourMutated
-            ? "Proof-gated pedagogy act accepted. Auricrux pour-control stripping date updated in process memory. No PM/finance table mutation."
+        var mutated = pourMutated || erectionMutated;
+        var target = pourMutated
+            ? BreakthroughLoopStore.PourControlMutationTarget
+            : erectionMutated
+                ? BreakthroughLoopStore.ErectionControlMutationTarget
+                : null;
+        var reason = mutated
+            ? $"Proof-gated pedagogy act accepted. Auricrux {target} updated. No PM/finance table mutation."
             : "Proof-gated pedagogy act accepted. Process-memory audit recorded. No PM/finance table mutation.";
 
         _loop.AddPedagogyAct(new PedagogyActRecord
@@ -92,14 +114,14 @@ public sealed class PedagogyActService
             DecisionId = request.DecisionId ?? "",
             VerificationId = request.VerificationId ?? "",
             Accepted = true,
-            MutationApplied = pourMutated,
+            MutationApplied = mutated,
             Reason = reason,
             CatalogMatchIsNotSynthesis = true
         });
 
         return new PedagogyActResult(
             Accepted: true,
-            MutationApplied: pourMutated,
+            MutationApplied: mutated,
             ActId: id,
             Slice: slice,
             Action: action,
@@ -107,13 +129,18 @@ public sealed class PedagogyActService
             Reason: reason,
             CatalogMatchIsNotSynthesis: true,
             PourControlMutated: pourMutated,
-            MutationTarget: pourMutated ? BreakthroughLoopStore.PourControlMutationTarget : null,
+            ErectionControlMutated: erectionMutated,
+            MutationTarget: target,
             PmOrFinanceMutated: false,
-            BaselineStripDays: control?.BaselineStripDays,
-            CurrentStripDays: control?.CurrentStripDays,
-            HoldActive: control?.HoldActive,
-            PlannedStripAtUtc: control?.PlannedStripAtUtc,
-            CurrentStripAtUtc: control?.CurrentStripAtUtc);
+            BaselineStripDays: pour?.BaselineStripDays,
+            CurrentStripDays: pour?.CurrentStripDays,
+            HoldActive: pour?.HoldActive ?? erection?.HoldActive,
+            PlannedStripAtUtc: pour?.PlannedStripAtUtc,
+            CurrentStripAtUtc: pour?.CurrentStripAtUtc,
+            BaselineErectionDays: erection?.BaselineErectionDays,
+            CurrentErectionDays: erection?.CurrentErectionDays,
+            PlannedErectionAtUtc: erection?.PlannedErectionAtUtc,
+            CurrentErectionAtUtc: erection?.CurrentErectionAtUtc);
     }
 
     private static bool IsHoldStrip(string action, string slice) =>
@@ -124,9 +151,21 @@ public sealed class PedagogyActService
         action.Equals("proceed-strip", StringComparison.OrdinalIgnoreCase)
         || (action.Equals("proceed", StringComparison.OrdinalIgnoreCase) && IsPourSlice(slice));
 
+    private static bool IsHoldErection(string action, string slice) =>
+        action.Equals("hold-erection", StringComparison.OrdinalIgnoreCase)
+        || (action.Equals("hold", StringComparison.OrdinalIgnoreCase) && IsSteelSlice(slice));
+
+    private static bool IsProceedErection(string action, string slice) =>
+        action.Equals("proceed-erection", StringComparison.OrdinalIgnoreCase)
+        || (action.Equals("proceed", StringComparison.OrdinalIgnoreCase) && IsSteelSlice(slice));
+
     private static bool IsPourSlice(string slice) =>
         slice.Equals("foundation-pour", StringComparison.OrdinalIgnoreCase)
         || slice.Equals("stripping", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSteelSlice(string slice) =>
+        slice.Equals("steel", StringComparison.OrdinalIgnoreCase)
+        || slice.Equals("steel-deflection", StringComparison.OrdinalIgnoreCase);
 
     private static PedagogyActResult Refuse(string reason, string slice, string action) =>
         new(
@@ -165,10 +204,15 @@ public sealed record PedagogyActResult(
     string Reason,
     bool CatalogMatchIsNotSynthesis,
     bool PourControlMutated = false,
+    bool ErectionControlMutated = false,
     string? MutationTarget = null,
     bool PmOrFinanceMutated = false,
     int? BaselineStripDays = null,
     int? CurrentStripDays = null,
     bool? HoldActive = null,
     DateTime? PlannedStripAtUtc = null,
-    DateTime? CurrentStripAtUtc = null);
+    DateTime? CurrentStripAtUtc = null,
+    int? BaselineErectionDays = null,
+    int? CurrentErectionDays = null,
+    DateTime? PlannedErectionAtUtc = null,
+    DateTime? CurrentErectionAtUtc = null);

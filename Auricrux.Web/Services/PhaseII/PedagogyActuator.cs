@@ -5,6 +5,7 @@ namespace Auricrux.Web.Services.PhaseII;
 /// governed field lesson and hold/proceed act. Catalog matching is not lesson synthesis.
 /// Incomplete priors and open loops silence — they do not teach or mutate.
 /// A matching prior job lesson confirms the same act (Improve) without unique synthesis.
+/// An already-held Auricrux control is restated as hold-still-in-force, not unique synthesis.
 /// </summary>
 public static class PedagogyActuator
 {
@@ -21,7 +22,8 @@ public static class PedagogyActuator
         string GovernanceClass,
         bool CatalogMatchIsNotSynthesis,
         bool PriorLessonConfirmed,
-        string? PriorProposedAction);
+        string? PriorProposedAction,
+        bool HoldStillInForce);
 
     public static PedagogyProposal FromPourLoop(
         bool incomplete,
@@ -29,7 +31,10 @@ public static class PedagogyActuator
         bool loopClosed,
         bool requiresCorrection,
         string recommendedApproach,
-        string? priorProposedAction = null)
+        string? priorProposedAction = null,
+        bool holdAlreadyInForce = false,
+        int? heldDays = null,
+        int? baselineDays = null)
     {
         if (incomplete)
             return Silenced(PourSlice, incompleteReason ?? "Prior is incomplete. Pedagogy cannot actuate.");
@@ -43,7 +48,7 @@ public static class PedagogyActuator
         var lesson = requiresCorrection
             ? $"Job-derived lesson (not catalog matching): field cylinders diverged from '{recommendedApproach}'. Hold stripping until the equivalent-age prior and breaks agree. Human accept is required before any schedule mutation."
             : $"Job-derived lesson (not catalog matching): '{recommendedApproach}' closed the loop closely enough to propose proceed-strip. Human accept is still required before mutation.";
-        return Closed(PourSlice, action, topic, lesson, priorProposedAction);
+        return Closed(PourSlice, action, topic, lesson, priorProposedAction, holdAlreadyInForce, heldDays, baselineDays);
     }
 
     public static PedagogyProposal FromSteelLoop(
@@ -52,7 +57,10 @@ public static class PedagogyActuator
         bool loopClosed,
         bool requiresCorrection,
         string recommendedApproach,
-        string? priorProposedAction = null)
+        string? priorProposedAction = null,
+        bool holdAlreadyInForce = false,
+        int? heldDays = null,
+        int? baselineDays = null)
     {
         if (incomplete)
             return Silenced(SteelSlice, incompleteReason ?? "Prior is incomplete. Pedagogy cannot actuate.");
@@ -66,7 +74,7 @@ public static class PedagogyActuator
         var lesson = requiresCorrection
             ? $"Job-derived lesson (not catalog matching): field deflection diverged from '{recommendedApproach}'. Hold erection until the steel prior and L/360 agree. Human accept is required before any schedule mutation."
             : $"Job-derived lesson (not catalog matching): '{recommendedApproach}' closed the loop closely enough to propose proceed-erection. Human accept is still required before mutation.";
-        return Closed(SteelSlice, action, topic, lesson, priorProposedAction);
+        return Closed(SteelSlice, action, topic, lesson, priorProposedAction, holdAlreadyInForce, heldDays, baselineDays);
     }
 
     private static PedagogyProposal Silenced(string slice, string reason) =>
@@ -80,14 +88,18 @@ public static class PedagogyActuator
             GovernanceClass: "safety",
             CatalogMatchIsNotSynthesis: true,
             PriorLessonConfirmed: false,
-            PriorProposedAction: null);
+            PriorProposedAction: null,
+            HoldStillInForce: false);
 
     private static PedagogyProposal Closed(
         string slice,
         string action,
         string topic,
         string lesson,
-        string? priorProposedAction)
+        string? priorProposedAction,
+        bool holdAlreadyInForce,
+        int? heldDays,
+        int? baselineDays)
     {
         var confirmed = !string.IsNullOrWhiteSpace(priorProposedAction)
                         && string.Equals(priorProposedAction, action, StringComparison.OrdinalIgnoreCase);
@@ -95,6 +107,15 @@ public static class PedagogyActuator
         {
             topic = "Prior job lesson confirmed: " + topic;
             lesson += " A previous job-derived lesson on this project proposed the same act; this closed loop confirmed it. Still not unique synthesis.";
+        }
+
+        var holdStill = holdAlreadyInForce
+                        && (action.Equals("hold-strip", StringComparison.OrdinalIgnoreCase)
+                            || action.Equals("hold-erection", StringComparison.OrdinalIgnoreCase));
+        if (holdStill)
+        {
+            topic = "Hold still in force: " + topic;
+            lesson += $" Auricrux control is already holding to day {heldDays} (baseline {baselineDays}). Confirming the same act. Still not unique synthesis.";
         }
 
         return new PedagogyProposal(
@@ -107,6 +128,7 @@ public static class PedagogyActuator
             GovernanceClass: "safety",
             CatalogMatchIsNotSynthesis: true,
             PriorLessonConfirmed: confirmed,
-            PriorProposedAction: priorProposedAction);
+            PriorProposedAction: priorProposedAction,
+            HoldStillInForce: holdStill);
     }
 }
