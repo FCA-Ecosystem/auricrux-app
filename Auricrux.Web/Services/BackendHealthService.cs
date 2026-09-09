@@ -16,6 +16,8 @@ public sealed class BackendHealthReport
     public IReadOnlyList<string> MemoryBackends { get; set; } = [];
     public IReadOnlyList<string> Models { get; set; } = [];
     public string RuntimeMode { get; set; } = "corpus-fallback";
+    public bool AtlasConfigured { get; set; }
+    public string AtlasStatus { get; set; } = "not_configured";
     public PackageIdentitySnapshot? PackageIdentity { get; set; }
     public string GitSha { get; set; } = "";
 }
@@ -26,6 +28,7 @@ public sealed class BackendHealthService(
     IHttpClientFactory httpClientFactory,
     IConfiguration config,
     PackageIdentityService packageIdentity,
+    AtlasService atlas,
     ILogger<BackendHealthService> logger)
 {
     public async Task<BackendHealthReport> ProbeAsync(CancellationToken ct = default)
@@ -44,6 +47,17 @@ public sealed class BackendHealthService(
             PackageIdentity = pkg,
             GitSha = pkg.GitSha ?? ""
         };
+
+        report.AtlasConfigured = atlas.IsConfigured;
+        if (!atlas.IsConfigured)
+        {
+            report.AtlasStatus = "not_configured";
+        }
+        else
+        {
+            var (ok, _) = await atlas.PingAsync(ct);
+            report.AtlasStatus = ok ? "ok" : "unreachable";
+        }
 
         try
         {

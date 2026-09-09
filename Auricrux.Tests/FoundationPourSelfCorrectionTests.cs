@@ -59,6 +59,10 @@ public sealed class FoundationPourSelfCorrectionTests
         Assert.False(string.IsNullOrWhiteSpace(result.PedagogyLessonId));
         Assert.NotEmpty(loop.ListFieldLessons(projectId));
         Assert.False(result.PedagogyPriorLessonConfirmed);
+        Assert.False(loop.AtlasConfigured);
+        var durability = await loop.GetDurabilityStatusAsync();
+        Assert.False(durability.Configured);
+        Assert.Equal("not_configured", durability.Status);
 
         var confirmed = await demo.RunAsync(new FoundationPourDemoOptions
         {

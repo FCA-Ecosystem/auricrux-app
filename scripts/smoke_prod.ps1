@@ -103,7 +103,7 @@ Invoke-SmokeCheck "POST /api/breakthrough/demo/foundation-pour (ACI 305R)" {
 Invoke-SmokeCheck "GET /api/breakthrough/field-lessons (job-derived process memory)" {
     $r = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/field-lessons?projectId=demo-foundation-pour" -Method Get -TimeoutSec 30
     if ($r.count -lt 1) { throw "expected at least one field lesson" }
-    if ($r.durableStore -ne "process-memory") { throw "expected process-memory store" }
+    if ($r.durableStore -ne "process-memory" -and $r.durableStore -ne "atlas") { throw "unexpected durableStore $($r.durableStore)" }
     $hold = @($r.lessons) | Where-Object { $_.proposedAction -eq "hold-strip" }
     if (-not $hold) { throw "expected hold-strip lesson in process memory" }
     "count=$($r.count) store=$($r.durableStore)"

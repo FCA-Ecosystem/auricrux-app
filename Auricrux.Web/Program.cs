@@ -195,6 +195,16 @@ Directory.CreateDirectory(workspaceRoot);
 // Ensure Atlas indexes for learning pipeline collections
 var atlas = app.Services.GetRequiredService<AtlasService>();
 _ = Task.Run(async () => await atlas.EnsureIndexesAsync());
+var loopStore = app.Services.GetRequiredService<BreakthroughLoopStore>();
+try
+{
+    using var hydrateCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+    loopStore.HydrateFromAtlasAsync(hydrateCts.Token).GetAwaiter().GetResult();
+}
+catch
+{
+    // Live still serves from process memory if Atlas hydrate times out.
+}
 
 if (!app.Environment.IsDevelopment())
 {

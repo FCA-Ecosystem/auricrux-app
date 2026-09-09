@@ -1,4 +1,7 @@
 using System.Collections.Concurrent;
+using MongoDB.Bson;
+using MongoDB.Driver;
+using AtlasClient = Auricrux.Web.Services.AtlasService;
 
 namespace Auricrux.Web.Services.Breakthrough;
 
@@ -9,6 +12,8 @@ namespace Auricrux.Web.Services.Breakthrough;
 /// </summary>
 public sealed class BreakthroughLoopStore
 {
+    private readonly AtlasClient? _atlas;
+    private readonly ConcurrentDictionary<string, byte> _fieldLessonIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ConstructionHypothesis> _hypotheses = new();
     private readonly ConcurrentDictionary<string, HypothesisComparison> _decisions = new();
     private readonly ConcurrentDictionary<string, ProvableReasoningResult> _proofs = new();
@@ -25,6 +30,15 @@ public sealed class BreakthroughLoopStore
     public const string ErectionControlMutationTarget = "erection-control-process-memory";
     public const string DefaultPourProjectId = "demo-foundation-pour";
     public const string DefaultSteelProjectId = "demo-structural-steel";
+    public const string ProcessMemoryDurableStore = "process-memory";
+    public const string AtlasDurableStore = "atlas";
+    public const string FieldLessonsCollection = "field_lessons";
+    public const string PourControlsCollection = "pour_controls";
+    public const string ErectionControlsCollection = "erection_controls";
+
+    public BreakthroughLoopStore(AtlasClient? atlas = null) => _atlas = atlas;
+
+    public bool AtlasConfigured => _atlas?.IsConfigured == true;
 
     public void CacheComparison(HypothesisComparison comparison)
     {
@@ -69,8 +83,12 @@ public sealed class BreakthroughLoopStore
             .OrderByDescending(r => r.CreatedAtUtc)
             .ToList();
 
-    public void AddFieldLesson(FieldLessonRecord lesson) =>
+    public void AddFieldLesson(FieldLessonRecord lesson)
+    {
+        if (!_fieldLessonIds.TryAdd(lesson.LessonId, 0))
+            return;
         _fieldLessons.Add(lesson);
+    }
 
     public IReadOnlyList<FieldLessonRecord> ListFieldLessons(string? projectId, int limit = 20)
     {
@@ -170,12 +188,242 @@ public sealed class BreakthroughLoopStore
             (_, existing) => existing.WithProceed(actId));
     }
 
+    public async Task<bool> TryPersistFieldLessonAsync(FieldLessonRecord lesson, CancellationToken ct = default)
+    {
+        if (!AtlasConfigured)
+            return false;
+        try
+        {
+            var docs = _atlas!.Database!.GetCollection<BsonDocument>(FieldLessonsCollection);
+            var doc = new BsonDocument
+            {
+                ["_id"] = lesson.LessonId,
+                ["project_id"] = lesson.ProjectId,
+                ["slice"] = lesson.Slice,
+                ["proposed_action"] = lesson.ProposedAction,
+                ["topic"] = lesson.Topic,
+                ["lesson"] = lesson.Lesson,
+                ["source_decision_id"] = lesson.SourceDecisionId,
+                ["durable_store"] = AtlasDurableStore,
+                ["catalog_match_is_not_synthesis"] = lesson.CatalogMatchIsNotSynthesis,
+                ["created_at_utc"] = lesson.CreatedAtUtc
+            };
+            await docs.ReplaceOneAsync(
+                Builders<BsonDocument>.Filter.Eq("_id", lesson.LessonId),
+                doc,
+                new ReplaceOptions { IsUpsert = true },
+                ct);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> TryPersistPourControlAsync(PourControlRecord control, CancellationToken ct = default)
+    {
+        if (!AtlasConfigured)
+            return false;
+        try
+        {
+            var docs = _atlas!.Database!.GetCollection<BsonDocument>(PourControlsCollection);
+            var doc = new BsonDocument
+            {
+                ["_id"] = control.ProjectId,
+                ["project_id"] = control.ProjectId,
+                ["baseline_strip_days"] = control.BaselineStripDays,
+                ["current_strip_days"] = control.CurrentStripDays,
+                ["hold_active"] = control.HoldActive,
+                ["pour_at_utc"] = control.PourAtUtc,
+                ["planned_strip_at_utc"] = control.PlannedStripAtUtc,
+                ["current_strip_at_utc"] = control.CurrentStripAtUtc,
+                ["mutation_target"] = control.MutationTarget,
+                ["pm_or_finance_mutated"] = control.PmOrFinanceMutated,
+                ["last_act_id"] = control.LastActId ?? "",
+                ["updated_at_utc"] = control.UpdatedAtUtc
+            };
+            await docs.ReplaceOneAsync(
+                Builders<BsonDocument>.Filter.Eq("_id", control.ProjectId),
+                doc,
+                new ReplaceOptions { IsUpsert = true },
+                ct);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> TryPersistErectionControlAsync(ErectionControlRecord control, CancellationToken ct = default)
+    {
+        if (!AtlasConfigured)
+            return false;
+        try
+        {
+            var docs = _atlas!.Database!.GetCollection<BsonDocument>(ErectionControlsCollection);
+            var doc = new BsonDocument
+            {
+                ["_id"] = control.ProjectId,
+                ["project_id"] = control.ProjectId,
+                ["baseline_erection_days"] = control.BaselineErectionDays,
+                ["current_erection_days"] = control.CurrentErectionDays,
+                ["hold_active"] = control.HoldActive,
+                ["planned_at_utc"] = control.PlannedAtUtc,
+                ["planned_erection_at_utc"] = control.PlannedErectionAtUtc,
+                ["current_erection_at_utc"] = control.CurrentErectionAtUtc,
+                ["mutation_target"] = control.MutationTarget,
+                ["pm_or_finance_mutated"] = control.PmOrFinanceMutated,
+                ["last_act_id"] = control.LastActId ?? "",
+                ["updated_at_utc"] = control.UpdatedAtUtc
+            };
+            await docs.ReplaceOneAsync(
+                Builders<BsonDocument>.Filter.Eq("_id", control.ProjectId),
+                doc,
+                new ReplaceOptions { IsUpsert = true },
+                ct);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task HydrateFromAtlasAsync(CancellationToken ct = default)
+    {
+        if (!AtlasConfigured)
+            return;
+        try
+        {
+            var lessons = await _atlas!.Database!.GetCollection<BsonDocument>(FieldLessonsCollection)
+                .Find(FilterDefinition<BsonDocument>.Empty)
+                .Sort(Builders<BsonDocument>.Sort.Descending("created_at_utc"))
+                .Limit(200)
+                .ToListAsync(ct);
+            foreach (var doc in lessons)
+            {
+                AddFieldLesson(new FieldLessonRecord
+                {
+                    LessonId = doc.GetValue("_id", "").ToString() ?? "",
+                    ProjectId = doc.GetValue("project_id", "").AsString,
+                    Slice = doc.GetValue("slice", "").AsString,
+                    ProposedAction = doc.GetValue("proposed_action", "").AsString,
+                    Topic = doc.GetValue("topic", "").AsString,
+                    Lesson = doc.GetValue("lesson", "").AsString,
+                    SourceDecisionId = doc.GetValue("source_decision_id", "").AsString,
+                    DurableStore = AtlasDurableStore,
+                    CatalogMatchIsNotSynthesis = doc.GetValue("catalog_match_is_not_synthesis", true).ToBoolean(),
+                    CreatedAtUtc = ReadUtc(doc, "created_at_utc")
+                });
+            }
+
+            var pours = await _atlas.Database.GetCollection<BsonDocument>(PourControlsCollection)
+                .Find(FilterDefinition<BsonDocument>.Empty)
+                .ToListAsync(ct);
+            foreach (var doc in pours)
+            {
+                var projectId = doc.GetValue("project_id", "").AsString;
+                if (string.IsNullOrWhiteSpace(projectId))
+                    continue;
+                var pourAt = ReadUtc(doc, "pour_at_utc");
+                var baseline = doc.GetValue("baseline_strip_days", 7).ToInt32();
+                var current = doc.GetValue("current_strip_days", baseline).ToInt32();
+                _pourControls[projectId] = new PourControlRecord
+                {
+                    ProjectId = projectId,
+                    BaselineStripDays = baseline,
+                    CurrentStripDays = current,
+                    HoldActive = doc.GetValue("hold_active", false).ToBoolean(),
+                    PourAtUtc = pourAt,
+                    PlannedStripAtUtc = ReadUtc(doc, "planned_strip_at_utc", pourAt.AddDays(baseline)),
+                    CurrentStripAtUtc = ReadUtc(doc, "current_strip_at_utc", pourAt.AddDays(current)),
+                    MutationTarget = doc.GetValue("mutation_target", PourControlMutationTarget).AsString,
+                    PmOrFinanceMutated = false,
+                    LastActId = doc.GetValue("last_act_id", "").AsString,
+                    UpdatedAtUtc = ReadUtc(doc, "updated_at_utc")
+                };
+            }
+
+            var erections = await _atlas.Database.GetCollection<BsonDocument>(ErectionControlsCollection)
+                .Find(FilterDefinition<BsonDocument>.Empty)
+                .ToListAsync(ct);
+            foreach (var doc in erections)
+            {
+                var projectId = doc.GetValue("project_id", "").AsString;
+                if (string.IsNullOrWhiteSpace(projectId))
+                    continue;
+                var plannedAt = ReadUtc(doc, "planned_at_utc");
+                var baseline = doc.GetValue("baseline_erection_days", 0).ToInt32();
+                var current = doc.GetValue("current_erection_days", baseline).ToInt32();
+                _erectionControls[projectId] = new ErectionControlRecord
+                {
+                    ProjectId = projectId,
+                    BaselineErectionDays = baseline,
+                    CurrentErectionDays = current,
+                    HoldActive = doc.GetValue("hold_active", false).ToBoolean(),
+                    PlannedAtUtc = plannedAt,
+                    PlannedErectionAtUtc = ReadUtc(doc, "planned_erection_at_utc", plannedAt.AddDays(baseline)),
+                    CurrentErectionAtUtc = ReadUtc(doc, "current_erection_at_utc", plannedAt.AddDays(current)),
+                    MutationTarget = doc.GetValue("mutation_target", ErectionControlMutationTarget).AsString,
+                    PmOrFinanceMutated = false,
+                    LastActId = doc.GetValue("last_act_id", "").AsString,
+                    UpdatedAtUtc = ReadUtc(doc, "updated_at_utc")
+                };
+            }
+        }
+        catch
+        {
+            // Process memory remains the in-process source of truth.
+        }
+    }
+
+    public async Task<NsfAtlasDurabilityStatus> GetDurabilityStatusAsync(CancellationToken ct = default)
+    {
+        if (!AtlasConfigured)
+            return new NsfAtlasDurabilityStatus(false, "not_configured", 0, 0, 0, 0);
+        try
+        {
+            var db = _atlas!.Database!;
+            var comparisons = await db.GetCollection<BsonDocument>("hypothesis_comparisons").CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct);
+            var lessons = await db.GetCollection<BsonDocument>(FieldLessonsCollection).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct);
+            var pours = await db.GetCollection<BsonDocument>(PourControlsCollection).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct);
+            var erections = await db.GetCollection<BsonDocument>(ErectionControlsCollection).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct);
+            return new NsfAtlasDurabilityStatus(true, "ok", comparisons, lessons, pours, erections);
+        }
+        catch
+        {
+            return new NsfAtlasDurabilityStatus(true, "unreachable", 0, 0, 0, 0);
+        }
+    }
+
+    private static DateTime ReadUtc(BsonDocument doc, string field, DateTime? fallback = null)
+    {
+        if (!doc.Contains(field) || doc[field].IsBsonNull)
+            return fallback ?? DateTime.UtcNow;
+        var value = doc[field];
+        if (value.IsValidDateTime)
+            return DateTime.SpecifyKind(value.ToUniversalTime(), DateTimeKind.Utc);
+        if (value.IsString && DateTime.TryParse(value.AsString, out var parsed))
+            return DateTime.SpecifyKind(parsed.ToUniversalTime(), DateTimeKind.Utc);
+        return fallback ?? DateTime.UtcNow;
+    }
+
     private static string NormalizeProjectId(string? projectId) =>
         string.IsNullOrWhiteSpace(projectId) ? DefaultPourProjectId : projectId.Trim();
 
     private static string NormalizeSteelProjectId(string? projectId) =>
         string.IsNullOrWhiteSpace(projectId) ? DefaultSteelProjectId : projectId.Trim();
 }
+
+public sealed record NsfAtlasDurabilityStatus(
+    bool Configured,
+    string Status,
+    long HypothesisComparisons,
+    long FieldLessons,
+    long PourControls,
+    long ErectionControls);
 
 /// <summary>
 /// Actionable control item derived from a closed breakthrough loop — not a job-cost mutation.

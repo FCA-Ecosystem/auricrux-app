@@ -172,7 +172,7 @@ public sealed class FoundationPourDemoService
             holdInForce,
             heldDays,
             baselineDays);
-        var lessonId = RecordPedagogy(options, comparison.DecisionId, pedagogy);
+        var lessonId = await RecordPedagogyAsync(options, comparison.DecisionId, pedagogy, ct);
 
         return new FoundationPourDemoResult
         {
@@ -193,7 +193,10 @@ public sealed class FoundationPourDemoService
             PedagogyLesson = pedagogy.FieldLesson,
             PedagogyLessonId = lessonId,
             PedagogyRecorded = lessonId is not null,
-            PedagogyDurableStore = lessonId is null ? null : "process-memory",
+            PedagogyDurableStore = lessonId is null
+                ? null
+                : (ListFieldLessons(options.ProjectId, 1).FirstOrDefault()?.DurableStore
+                   ?? BreakthroughLoopStore.ProcessMemoryDurableStore),
             PedagogyPriorLessonConfirmed = pedagogy.PriorLessonConfirmed,
             PedagogyHoldStillInForce = pedagogy.HoldStillInForce,
             PriorJobLessons = ListFieldLessons(options.ProjectId),
@@ -401,10 +404,11 @@ public sealed class FoundationPourDemoService
             : PedagogyActuator.FromPourLoop(incomplete, incompleteReason, loopClosed, requiresCorrection, recommendedApproach, priorProposedAction, holdAlreadyInForce, heldDays, baselineDays);
     }
 
-    private string? RecordPedagogy(
+    private async Task<string?> RecordPedagogyAsync(
         FoundationPourDemoOptions options,
         string decisionId,
-        PedagogyActuator.PedagogyProposal pedagogy)
+        PedagogyActuator.PedagogyProposal pedagogy,
+        CancellationToken ct)
     {
         if (pedagogy.Silence
             || string.IsNullOrWhiteSpace(options.ProjectId)
@@ -415,6 +419,18 @@ public sealed class FoundationPourDemoService
         }
 
         var id = Guid.NewGuid().ToString("n");
+        var persisted = await _loop.TryPersistFieldLessonAsync(new FieldLessonRecord
+        {
+            LessonId = id,
+            ProjectId = options.ProjectId,
+            Slice = pedagogy.Slice,
+            ProposedAction = pedagogy.ProposedAction,
+            Topic = pedagogy.FieldLessonTopic ?? pedagogy.ProposedAction,
+            Lesson = pedagogy.FieldLesson,
+            SourceDecisionId = decisionId,
+            DurableStore = BreakthroughLoopStore.ProcessMemoryDurableStore,
+            CatalogMatchIsNotSynthesis = true
+        }, ct);
         _loop.AddFieldLesson(new FieldLessonRecord
         {
             LessonId = id,
@@ -424,7 +440,9 @@ public sealed class FoundationPourDemoService
             Topic = pedagogy.FieldLessonTopic ?? pedagogy.ProposedAction,
             Lesson = pedagogy.FieldLesson,
             SourceDecisionId = decisionId,
-            DurableStore = "process-memory",
+            DurableStore = persisted
+                ? BreakthroughLoopStore.AtlasDurableStore
+                : BreakthroughLoopStore.ProcessMemoryDurableStore,
             CatalogMatchIsNotSynthesis = true
         });
         return id;
@@ -438,6 +456,11 @@ public sealed class FoundationPourDemoService
 
     public ErectionControlRecord? GetErectionControl(string? projectId) =>
         _loop.GetErectionControl(projectId);
+
+    public bool AtlasConfigured => _loop.AtlasConfigured;
+
+    public Task<NsfAtlasDurabilityStatus> GetDurabilityStatusAsync(CancellationToken ct = default) =>
+        _loop.GetDurabilityStatusAsync(ct);
 
     private static string BuildSummary(
         HypothesisComparison comparison,

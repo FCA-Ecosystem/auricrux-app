@@ -217,16 +217,22 @@ public sealed class BreakthroughController(
         => Ok(await foundationPourDemo.RunStructuralAsync(options, cancellationToken));
 
     /// <summary>
-    /// Job-derived field lessons in process memory. Not catalog matching. Not Atlas until configured.
+    /// Job-derived field lessons. Atlas when configured; otherwise process memory.
+    /// Catalog matching is not lesson synthesis.
     /// </summary>
     [HttpGet("field-lessons")]
     public ActionResult<object> ListFieldLessons([FromQuery] string? projectId, [FromQuery] int limit = 20)
     {
         var lessons = foundationPourDemo.ListFieldLessons(projectId, limit);
+        var atlas = lessons.Any(l =>
+            string.Equals(l.DurableStore, BreakthroughLoopStore.AtlasDurableStore, StringComparison.OrdinalIgnoreCase));
         return Ok(new
         {
             projectId,
-            durableStore = "process-memory",
+            durableStore = atlas
+                ? BreakthroughLoopStore.AtlasDurableStore
+                : BreakthroughLoopStore.ProcessMemoryDurableStore,
+            atlasConfigured = pedagogyAct.AtlasConfigured,
             catalogMatchIsNotSynthesis = true,
             count = lessons.Count,
             lessons
@@ -237,8 +243,8 @@ public sealed class BreakthroughController(
     /// Proof-gated pour/steel act. Records a process-memory audit. Never mutates PM/finance.
     /// </summary>
     [HttpPost("act")]
-    public ActionResult<PedagogyActResult> Act([FromBody] PedagogyActRequest? request)
-        => Ok(pedagogyAct.Execute(request ?? new PedagogyActRequest()));
+    public async Task<ActionResult<PedagogyActResult>> Act([FromBody] PedagogyActRequest? request)
+        => Ok(await pedagogyAct.Execute(request ?? new PedagogyActRequest()));
 
     /// <summary>
     /// Process-memory pedagogy acts. Pour-control mutations are not PM/finance mutations.
@@ -270,7 +276,9 @@ public sealed class BreakthroughController(
             projectId = string.IsNullOrWhiteSpace(projectId)
                 ? BreakthroughLoopStore.DefaultPourProjectId
                 : projectId,
-            durableStore = "process-memory",
+            durableStore = pedagogyAct.AtlasConfigured
+                ? BreakthroughLoopStore.AtlasDurableStore
+                : BreakthroughLoopStore.ProcessMemoryDurableStore,
             mutationTarget = BreakthroughLoopStore.PourControlMutationTarget,
             pmOrFinanceMutated = false,
             control
@@ -289,10 +297,33 @@ public sealed class BreakthroughController(
             projectId = string.IsNullOrWhiteSpace(projectId)
                 ? BreakthroughLoopStore.DefaultSteelProjectId
                 : projectId,
-            durableStore = "process-memory",
+            durableStore = pedagogyAct.AtlasConfigured
+                ? BreakthroughLoopStore.AtlasDurableStore
+                : BreakthroughLoopStore.ProcessMemoryDurableStore,
             mutationTarget = BreakthroughLoopStore.ErectionControlMutationTarget,
             pmOrFinanceMutated = false,
             control
+        });
+    }
+
+    /// <summary>
+    /// Atlas NSF durability counts. Empty string / not_configured means process memory only.
+    /// Does not expose connection strings.
+    /// </summary>
+    [HttpGet("atlas-status")]
+    public async Task<ActionResult<object>> GetAtlasStatus(CancellationToken cancellationToken)
+    {
+        var status = await pedagogyAct.GetDurabilityStatusAsync(cancellationToken);
+        return Ok(new
+        {
+            configured = status.Configured,
+            status = status.Status,
+            database = "auricrux",
+            hypothesisComparisons = status.HypothesisComparisons,
+            fieldLessons = status.FieldLessons,
+            pourControls = status.PourControls,
+            erectionControls = status.ErectionControls,
+            pmOrFinanceMutated = false
         });
     }
 }

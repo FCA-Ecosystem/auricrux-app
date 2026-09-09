@@ -456,6 +456,17 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
+    public async Task Atlas_status_is_not_configured_without_connection_string()
+    {
+        var response = await _client.GetAsync("/api/breakthrough/atlas-status");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.False(doc.RootElement.GetProperty("configured").GetBoolean());
+        Assert.Equal("not_configured", doc.RootElement.GetProperty("status").GetString());
+        Assert.False(doc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+    }
+
+    [Fact]
     public async Task Pile_demo_closes_nsf_loop()
     {
         var response = await _client.PostAsJsonAsync("/api/breakthrough/demo/driven-pile", new

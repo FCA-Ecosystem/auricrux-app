@@ -26,11 +26,14 @@ jobs:
     steps:
       - name: Publish web container on Oracle
         uses: appleboy/ssh-action@v1.2.2
+        env:
+          ATLAS_CONNECTION_STRING: ${{ secrets.ATLAS_CONNECTION_STRING }}
         with:
           host: 150.136.90.65
           username: ubuntu
           key: ${{ secrets.ORACLE_SSH_PRIVATE_KEY }}
           command_timeout: 40m
+          envs: ATLAS_CONNECTION_STRING
           script: |
             set -euo pipefail
             cd /home/ubuntu/auricrux-app
@@ -58,6 +61,8 @@ jobs:
               -e Auricrux__VisionModel=llava \
               -e GIT_COMMIT="$SHA" \
               -e Auricrux__GitSha="$SHA" \
+              -e Atlas__Database=auricrux \
+              -e Atlas__ConnectionString="${ATLAS_CONNECTION_STRING:-}" \
               "auricrux-web:$SHORT"
             ok=0
             for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
@@ -74,6 +79,6 @@ jobs:
               sudo docker start auricrux-web
               exit 1
             fi
-            python3 -c 'import json; h=json.load(open("/tmp/auricrux-health.json")); print(h.get("version"), h.get("gitSha"), h.get("ollamaReachable"))'
+            python3 -c 'import json; h=json.load(open("/tmp/auricrux-health.json")); print(h.get("version"), h.get("gitSha"), h.get("ollamaReachable"), h.get("atlasConfigured"), h.get("atlasStatus"))'
             sudo docker rm "auricrux-web-pre-$SHORT" || true
             sudo docker ps --format '{{.Names}} {{.Image}} {{.Status}}'

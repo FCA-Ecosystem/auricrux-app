@@ -44,7 +44,12 @@ public sealed class PedagogyActService
     public ErectionControlRecord? GetErectionControl(string? projectId) =>
         _loop.GetErectionControl(projectId);
 
-    public PedagogyActResult Execute(PedagogyActRequest request)
+    public bool AtlasConfigured => _loop.AtlasConfigured;
+
+    public Task<NsfAtlasDurabilityStatus> GetDurabilityStatusAsync(CancellationToken ct = default) =>
+        _loop.GetDurabilityStatusAsync(ct);
+
+    public async Task<PedagogyActResult> Execute(PedagogyActRequest request)
     {
         var slice = (request.Slice ?? "").Trim();
         var action = (request.Action ?? "").Trim();
@@ -118,6 +123,11 @@ public sealed class PedagogyActService
             Reason = reason,
             CatalogMatchIsNotSynthesis = true
         });
+
+        if (pour is not null)
+            await _loop.TryPersistPourControlAsync(pour);
+        if (erection is not null)
+            await _loop.TryPersistErectionControlAsync(erection);
 
         return new PedagogyActResult(
             Accepted: true,
