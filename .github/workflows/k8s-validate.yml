@@ -6,7 +6,6 @@ on:
     paths:
       - 'k8s-deployment.yaml'
       - 'k8s-ingress.yaml'
-      - 'Dockerfile'
       - '.github/workflows/k8s-validate.yml'
   pull_request:
     paths:
@@ -16,6 +15,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
@@ -38,6 +41,7 @@ jobs:
           echo "- Live cluster deploy: **not attempted** (no cluster credentials in CI — AUX-025 stays PARTIAL until founder provides kubeconfig)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Dry-run against kind cluster (optional local validation)
+        if: github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
           curl -Lo ./kind "https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64"

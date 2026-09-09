@@ -8,9 +8,14 @@ name: Atlas Health (secret smoke)
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - ".github/workflows/atlas-health.yml"
       - "scripts/ci/atlas-health-check.py"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   atlas-health:
