@@ -1,12 +1,25 @@
 name: GCP Warm Auricrux-FCA
 
+# RETIRED: GCP cutover is no longer a live path (Azure gone; production is Oracle/Railway).
+# Jobs no-op unless workflow_dispatch input confirm_retired_gcp == ENABLE-RETIRED-GCP.
+
 # Warm existing product auricrux-fca (merged LoRA GGUF) — never recreate from Modelfile.
 # UNSAFE-06 / ZG-M03: Modelfile.auricrux-fca is DEV FALLBACK ONLY. Product cutover uses GCS mint/load.
 on:
   workflow_dispatch:
+    inputs:
+      confirm_retired_gcp:
+        description: "Retired GCP workflow (prod is Oracle/Railway). Type ENABLE-RETIRED-GCP to run."
+        required: true
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   warm:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm_retired_gcp == 'ENABLE-RETIRED-GCP'
     runs-on: ubuntu-latest
     env:
       ZONE: us-central1-b

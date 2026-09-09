@@ -1,17 +1,29 @@
 name: GCP Cutover Probe
 
+# RETIRED: GCP cutover is no longer a live path (Azure gone; production is Oracle/Railway).
+# Jobs no-op unless workflow_dispatch input confirm_retired_gcp == ENABLE-RETIRED-GCP.
+
 # Uses existing FIREBASE_SERVICE_ACCOUNT_JSON to discover GCP access and,
 # when permitted, list the production VM / attempt Cloud Run deploy readiness.
 on:
   workflow_dispatch:
     inputs:
+      confirm_retired_gcp:
+        description: "Retired GCP workflow (prod is Oracle/Railway). Type ENABLE-RETIRED-GCP to run."
+        required: true
+        default: ""
       project_id:
         description: "GCP project id (blank = read from SA JSON)"
         required: false
         default: ""
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   probe:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm_retired_gcp == 'ENABLE-RETIRED-GCP'
     runs-on: ubuntu-latest
     permissions:
       contents: read

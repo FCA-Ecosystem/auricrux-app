@@ -1,15 +1,27 @@
 name: GCP Enable And Deploy
 
+# RETIRED: GCP cutover is no longer a live path (Azure gone; production is Oracle/Railway).
+# Jobs no-op unless workflow_dispatch input confirm_retired_gcp == ENABLE-RETIRED-GCP.
+
 on:
   workflow_dispatch:
     inputs:
+      confirm_retired_gcp:
+        description: "Retired GCP workflow (prod is Oracle/Railway). Type ENABLE-RETIRED-GCP to run."
+        required: true
+        default: ""
       action:
         description: "probe | enable-apis | deploy-auricrux"
         required: true
         default: "enable-apis"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   gcp:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm_retired_gcp == 'ENABLE-RETIRED-GCP'
     runs-on: ubuntu-latest
     permissions:
       contents: read
