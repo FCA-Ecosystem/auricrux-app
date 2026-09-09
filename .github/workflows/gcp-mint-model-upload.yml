@@ -1,9 +1,16 @@
 name: GCP Mint Model Upload Session
 
+# RETIRED: GCP cutover is no longer a live path (Azure gone; production is Oracle/Railway).
+# Jobs no-op unless workflow_dispatch input confirm_retired_gcp == ENABLE-RETIRED-GCP.
+
 # Creates a resumable GCS upload session URL for a large GGUF, saved as an artifact.
 on:
   workflow_dispatch:
     inputs:
+      confirm_retired_gcp:
+        description: "Retired GCP workflow (prod is Oracle/Railway). Type ENABLE-RETIRED-GCP to run."
+        required: true
+        default: ""
       object_name:
         description: Object name in auricrux-mobile-prod-model-xfer
         required: true
@@ -12,8 +19,13 @@ on:
         description: Exact file size in bytes
         required: true
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   mint:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm_retired_gcp == 'ENABLE-RETIRED-GCP'
     runs-on: ubuntu-latest
     steps:
       - uses: google-github-actions/auth@v2
