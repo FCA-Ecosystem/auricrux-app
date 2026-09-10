@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Auricrux.Web.Services.PhaseII;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using AtlasClient = Auricrux.Web.Services.AtlasService;
@@ -23,6 +24,8 @@ public sealed class BreakthroughLoopStore
     private readonly ConcurrentBag<PedagogyActRecord> _pedagogyActs = [];
     private readonly ConcurrentDictionary<string, PourControlRecord> _pourControls = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ErectionControlRecord> _erectionControls = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentBag<ApprenticeLessonPlanComposer.Plan> _apprenticePlans = [];
+    private readonly ConcurrentDictionary<string, byte> _apprenticePlanIds = new(StringComparer.OrdinalIgnoreCase);
 
     public const int HoldStripExtraDays = 3;
     public const int HoldErectionExtraDays = 2;
@@ -35,6 +38,7 @@ public sealed class BreakthroughLoopStore
     public const string FieldLessonsCollection = "field_lessons";
     public const string PourControlsCollection = "pour_controls";
     public const string ErectionControlsCollection = "erection_controls";
+    public const string ApprenticeLessonPlansCollection = "apprentice_lesson_plans";
 
     public BreakthroughLoopStore(AtlasClient? atlas = null) => _atlas = atlas;
 
@@ -117,6 +121,30 @@ public sealed class BreakthroughLoopStore
 
         return rows
             .OrderByDescending(a => a.CreatedAtUtc)
+            .Take(Math.Clamp(limit, 1, 100))
+            .ToList();
+    }
+
+    public async Task RememberApprenticeLessonPlanAsync(
+        ApprenticeLessonPlanComposer.Plan plan,
+        CancellationToken ct = default)
+    {
+        if (_apprenticePlanIds.TryAdd(plan.PlanId, 0))
+            _apprenticePlans.Add(plan);
+        await TryPersistApprenticeLessonPlanAsync(plan, ct);
+    }
+
+    public IReadOnlyList<ApprenticeLessonPlanComposer.Plan> ListApprenticeLessonPlans(string? apprenticeId, int limit = 20)
+    {
+        var rows = _apprenticePlans.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(apprenticeId))
+        {
+            rows = rows.Where(p =>
+                string.Equals(p.ApprenticeId, apprenticeId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return rows
+            .OrderByDescending(p => p.PlanId)
             .Take(Math.Clamp(limit, 1, 100))
             .ToList();
     }
@@ -291,6 +319,54 @@ public sealed class BreakthroughLoopStore
         }
     }
 
+    public async Task<bool> TryPersistApprenticeLessonPlanAsync(
+        ApprenticeLessonPlanComposer.Plan plan,
+        CancellationToken ct = default)
+    {
+        if (!AtlasConfigured)
+            return false;
+        try
+        {
+            var docs = _atlas!.Database!.GetCollection<BsonDocument>(ApprenticeLessonPlansCollection);
+            var modules = new BsonArray(plan.Modules.Select(m => new BsonDocument
+            {
+                ["order"] = m.Order,
+                ["kind"] = m.Kind,
+                ["title"] = m.Title,
+                ["prompt"] = m.Prompt,
+                ["minutes"] = m.Minutes,
+                ["source_id"] = m.SourceId ?? "",
+                ["source_kind"] = m.SourceKind
+            }));
+            var doc = new BsonDocument
+            {
+                ["_id"] = plan.PlanId,
+                ["apprentice_id"] = plan.ApprenticeId,
+                ["role"] = plan.Role,
+                ["slice"] = plan.Slice,
+                ["project_id"] = plan.ProjectId ?? "",
+                ["objective"] = plan.Objective,
+                ["assessment"] = plan.Assessment,
+                ["modules"] = modules,
+                ["governance_note"] = plan.GovernanceNote,
+                ["unique_synthesis"] = false,
+                ["catalog_matching"] = false,
+                ["catalog_actuated"] = false,
+                ["pm_or_finance_mutated"] = false
+            };
+            await docs.ReplaceOneAsync(
+                Builders<BsonDocument>.Filter.Eq("_id", plan.PlanId),
+                doc,
+                new ReplaceOptions { IsUpsert = true },
+                ct);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task HydrateFromAtlasAsync(CancellationToken ct = default)
     {
         if (!AtlasConfigured)
@@ -372,6 +448,48 @@ public sealed class BreakthroughLoopStore
                     UpdatedAtUtc = ReadUtc(doc, "updated_at_utc")
                 };
             }
+
+            var plans = await _atlas.Database.GetCollection<BsonDocument>(ApprenticeLessonPlansCollection)
+                .Find(FilterDefinition<BsonDocument>.Empty)
+                .Limit(200)
+                .ToListAsync(ct);
+            foreach (var doc in plans)
+            {
+                var planId = doc.GetValue("_id", "").ToString() ?? "";
+                if (string.IsNullOrWhiteSpace(planId) || !_apprenticePlanIds.TryAdd(planId, 0))
+                    continue;
+                var moduleDocs = doc.Contains("modules") && doc["modules"].IsBsonArray
+                    ? doc["modules"].AsBsonArray
+                    : [];
+                var modules = moduleDocs
+                    .Where(m => m.IsBsonDocument)
+                    .Select(m =>
+                    {
+                        var md = m.AsBsonDocument;
+                        return new ApprenticeLessonPlanComposer.Module(
+                            md.GetValue("order", 0).ToInt32(),
+                            md.GetValue("kind", "").AsString,
+                            md.GetValue("title", "").AsString,
+                            md.GetValue("prompt", "").AsString,
+                            md.GetValue("minutes", 20).ToInt32(),
+                            md.GetValue("source_id", "").AsString,
+                            md.GetValue("source_kind", "").AsString);
+                    })
+                    .ToList();
+                _apprenticePlans.Add(new ApprenticeLessonPlanComposer.Plan(
+                    planId,
+                    doc.GetValue("apprentice_id", "").AsString,
+                    doc.GetValue("role", "").AsString,
+                    doc.GetValue("slice", "").AsString,
+                    doc.GetValue("project_id", "").AsString,
+                    doc.GetValue("objective", "").AsString,
+                    doc.GetValue("assessment", "").AsString,
+                    modules,
+                    doc.GetValue("governance_note", ApprenticeLessonPlanComposer.GovernanceNote).AsString,
+                    UniqueSynthesis: false,
+                    CatalogMatching: false,
+                    CatalogActuated: false));
+            }
         }
         catch
         {
@@ -382,7 +500,7 @@ public sealed class BreakthroughLoopStore
     public async Task<NsfAtlasDurabilityStatus> GetDurabilityStatusAsync(CancellationToken ct = default)
     {
         if (!AtlasConfigured)
-            return new NsfAtlasDurabilityStatus(false, "not_configured", 0, 0, 0, 0, 0);
+            return new NsfAtlasDurabilityStatus(false, "not_configured", 0, 0, 0, 0, 0, 0);
         try
         {
             var db = _atlas!.Database!;
@@ -393,11 +511,12 @@ public sealed class BreakthroughLoopStore
             var textbooks = await db.GetCollection<BsonDocument>("chunks").CountDocumentsAsync(
                 Builders<BsonDocument>.Filter.Eq("domain", "academy-textbook"),
                 cancellationToken: ct);
-            return new NsfAtlasDurabilityStatus(true, "ok", comparisons, lessons, pours, erections, textbooks);
+            var plans = await db.GetCollection<BsonDocument>(ApprenticeLessonPlansCollection).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct);
+            return new NsfAtlasDurabilityStatus(true, "ok", comparisons, lessons, pours, erections, textbooks, plans);
         }
         catch
         {
-            return new NsfAtlasDurabilityStatus(true, "unreachable", 0, 0, 0, 0, 0);
+            return new NsfAtlasDurabilityStatus(true, "unreachable", 0, 0, 0, 0, 0, 0);
         }
     }
 
@@ -427,7 +546,8 @@ public sealed record NsfAtlasDurabilityStatus(
     long FieldLessons,
     long PourControls,
     long ErectionControls,
-    long TextbookChunks = 0);
+    long TextbookChunks = 0,
+    long ApprenticeLessonPlans = 0);
 
 /// <summary>
 /// Actionable control item derived from a closed breakthrough loop — not a job-cost mutation.

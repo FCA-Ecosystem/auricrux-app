@@ -20,6 +20,7 @@ public sealed class BreakthroughController(
     FoundationPourDemoService foundationPourDemo,
     PedagogyActService pedagogyAct,
     TextbookCorpusService textbookCorpus,
+    ApprenticeLessonPlanService apprenticeLessonPlans,
     ILogger<BreakthroughController> logger) : ControllerBase
 {
     /// <summary>
@@ -326,7 +327,63 @@ public sealed class BreakthroughController(
             pourControls = status.PourControls,
             erectionControls = status.ErectionControls,
             textbookChunks = status.TextbookChunks,
+            apprenticeLessonPlans = status.ApprenticeLessonPlans,
             pmOrFinanceMutated = false
+        });
+    }
+
+    /// <summary>
+    /// Compose an Auricrux-owned apprentice lesson plan for a specific learner.
+    /// Not catalog matching. Not unique synthesis. Does not actuate Academy catalog.
+    /// </summary>
+    [HttpPost("apprentice-lesson-plan")]
+    public async Task<ActionResult<object>> ComposeApprenticeLessonPlan(
+        [FromBody] ApprenticeLessonPlanRequestBody? body,
+        CancellationToken cancellationToken)
+    {
+        var request = new ApprenticeLessonPlanComposer.Request(
+            body?.ApprenticeId,
+            body?.Role,
+            body?.Slice,
+            body?.ProjectId,
+            body?.KnownGaps);
+        var result = await apprenticeLessonPlans.ComposeAsync(request, cancellationToken);
+        return Ok(new
+        {
+            silenced = result.Silence,
+            silenceReason = result.SilenceReason,
+            uniqueSynthesis = result.UniqueSynthesis,
+            catalogMatching = result.CatalogMatching,
+            catalogActuated = result.CatalogActuated,
+            pmOrFinanceMutated = result.PmOrFinanceMutated,
+            durableStore = pedagogyAct.AtlasConfigured
+                ? BreakthroughLoopStore.AtlasDurableStore
+                : BreakthroughLoopStore.ProcessMemoryDurableStore,
+            plan = result.Plan
+        });
+    }
+
+    /// <summary>
+    /// List Auricrux-composed apprentice lesson plans. Not Academy catalog rows.
+    /// </summary>
+    [HttpGet("apprentice-lesson-plans")]
+    public ActionResult<object> ListApprenticeLessonPlans(
+        [FromQuery] string? apprenticeId,
+        [FromQuery] int limit = 20)
+    {
+        var plans = apprenticeLessonPlans.List(apprenticeId, limit);
+        return Ok(new
+        {
+            apprenticeId,
+            count = plans.Count,
+            uniqueSynthesis = false,
+            catalogMatching = false,
+            catalogActuated = false,
+            pmOrFinanceMutated = false,
+            durableStore = pedagogyAct.AtlasConfigured
+                ? BreakthroughLoopStore.AtlasDurableStore
+                : BreakthroughLoopStore.ProcessMemoryDurableStore,
+            plans
         });
     }
 
@@ -356,6 +413,16 @@ public sealed class BreakthroughController(
             pmOrFinanceMutated = false
         });
     }
+}
+
+/// <summary>Learner-specific Auricrux lesson-plan request. Not an Academy catalog write.</summary>
+public sealed class ApprenticeLessonPlanRequestBody
+{
+    public string? ApprenticeId { get; init; }
+    public string? Role { get; init; }
+    public string? Slice { get; init; }
+    public string? ProjectId { get; init; }
+    public List<string>? KnownGaps { get; init; }
 }
 
 /// <summary>Request to generate competing hypotheses for a decision.</summary>

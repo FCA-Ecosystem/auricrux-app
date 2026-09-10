@@ -120,6 +120,19 @@ Invoke-SmokeCheck "GET /api/breakthrough/textbook-corpus (Academy textbook Atlas
     "count=$($r.count) hits=$(@($r.hits).Count) store=$($r.durableStore)"
 }
 
+Invoke-SmokeCheck "POST /api/breakthrough/apprentice-lesson-plan (learner-specific, not catalog)" {
+    $denied = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/apprentice-lesson-plan" -Method Post -Body '{"role":"first-year-apprentice","slice":"foundation-pour"}' -ContentType "application/json" -TimeoutSec 30
+    if ($denied.silenced -ne $true) { throw "missing apprenticeId must silence" }
+    $body = '{"apprenticeId":"apprentice-live-1","role":"first-year-apprentice","slice":"foundation-pour","projectId":"demo-foundation-pour","knownGaps":["Focus Four"]}'
+    $r = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/apprentice-lesson-plan" -Method Post -Body $body -ContentType "application/json" -TimeoutSec 60
+    if ($r.silenced -eq $true) { throw "expected a composed plan, got $($r.silenceReason)" }
+    if ($r.uniqueSynthesis -eq $true) { throw "must not claim unique synthesis" }
+    if ($r.catalogActuated -eq $true) { throw "must not claim catalog actuation" }
+    $titles = @($r.plan.modules) | ForEach-Object { $_.title }
+    if (-not ($titles | Where-Object { $_ -match 'Focus Four' })) { throw "expected Focus Four study module" }
+    "apprentice=$($r.plan.apprenticeId) role=$($r.plan.role) modules=$(@($r.plan.modules).Count)"
+}
+
 Invoke-SmokeCheck "POST /api/breakthrough/act (proof-gated pour-control hold)" {
     $pour = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/demo/foundation-pour" -Method Post -Body '{}' -ContentType "application/json" -TimeoutSec 60
     $decisionId = $pour.decisionId

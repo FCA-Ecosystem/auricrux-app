@@ -41,6 +41,7 @@ builder.Services.AddHttpClient("FcaEcosystem", client =>
 builder.Services.AddSingleton<AtlasService>();
 builder.Services.AddSingleton<AtlasCorpusService>();
 builder.Services.AddSingleton<TextbookCorpusService>();
+builder.Services.AddSingleton<ApprenticeLessonPlanService>();
 builder.Services.AddSingleton<AuricruxModelRouter>();
 
 builder.Services.AddSingleton<ConstructionIntelligenceService>();

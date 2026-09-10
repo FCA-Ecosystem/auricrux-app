@@ -465,6 +465,7 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
         Assert.Equal("not_configured", doc.RootElement.GetProperty("status").GetString());
         Assert.False(doc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
         Assert.Equal(0, doc.RootElement.GetProperty("textbookChunks").GetInt64());
+        Assert.Equal(0, doc.RootElement.GetProperty("apprenticeLessonPlans").GetInt64());
     }
 
     [Fact]
@@ -480,6 +481,81 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
         Assert.False(doc.RootElement.GetProperty("catalogActuated").GetBoolean());
         Assert.False(doc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
         Assert.Equal(0, doc.RootElement.GetProperty("hits").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Apprentice_lesson_plan_silences_without_identity()
+    {
+        var pour = await _client.PostAsJsonAsync("/api/breakthrough/demo/foundation-pour", new
+        {
+            projectId = $"plan-silence-{Guid.NewGuid():N}",
+            seedAdditionalVerifications = 10
+        });
+        Assert.Equal(HttpStatusCode.OK, pour.StatusCode);
+
+        var response = await _client.PostAsJsonAsync("/api/breakthrough/apprentice-lesson-plan", new
+        {
+            role = "first-year-apprentice",
+            slice = "foundation-pour"
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(doc.RootElement.GetProperty("silenced").GetBoolean());
+        Assert.Contains("Apprentice identity", doc.RootElement.GetProperty("silenceReason").GetString());
+        Assert.False(doc.RootElement.GetProperty("uniqueSynthesis").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("catalogActuated").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Apprentice_lesson_plans_are_tailored_by_learner_and_gap()
+    {
+        var projectId = $"plan-tailor-{Guid.NewGuid():N}";
+        var pour = await _client.PostAsJsonAsync("/api/breakthrough/demo/foundation-pour", new
+        {
+            projectId,
+            seedAdditionalVerifications = 10
+        });
+        Assert.Equal(HttpStatusCode.OK, pour.StatusCode);
+
+        var firstYear = await _client.PostAsJsonAsync("/api/breakthrough/apprentice-lesson-plan", new
+        {
+            apprenticeId = "apprentice-a",
+            role = "first-year-apprentice",
+            slice = "foundation-pour",
+            projectId,
+            knownGaps = new[] { "Focus Four" }
+        });
+        var journeyman = await _client.PostAsJsonAsync("/api/breakthrough/apprentice-lesson-plan", new
+        {
+            apprenticeId = "apprentice-b",
+            role = "journeyman-candidate",
+            slice = "foundation-pour",
+            projectId,
+            knownGaps = new[] { "GFCI" }
+        });
+        Assert.Equal(HttpStatusCode.OK, firstYear.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, journeyman.StatusCode);
+        using var a = System.Text.Json.JsonDocument.Parse(await firstYear.Content.ReadAsStringAsync());
+        using var b = System.Text.Json.JsonDocument.Parse(await journeyman.Content.ReadAsStringAsync());
+        Assert.False(a.RootElement.GetProperty("silenced").GetBoolean());
+        Assert.False(b.RootElement.GetProperty("silenced").GetBoolean());
+        Assert.False(a.RootElement.GetProperty("uniqueSynthesis").GetBoolean());
+        Assert.False(a.RootElement.GetProperty("catalogMatching").GetBoolean());
+        Assert.False(a.RootElement.GetProperty("catalogActuated").GetBoolean());
+        var planA = a.RootElement.GetProperty("plan");
+        var planB = b.RootElement.GetProperty("plan");
+        Assert.Equal("apprentice-a", planA.GetProperty("apprenticeId").GetString());
+        Assert.Equal("apprentice-b", planB.GetProperty("apprenticeId").GetString());
+        Assert.Equal("first-year-apprentice", planA.GetProperty("role").GetString());
+        Assert.Equal("journeyman-candidate", planB.GetProperty("role").GetString());
+        Assert.Contains(planA.GetProperty("modules").EnumerateArray(), m =>
+            (m.GetProperty("title").GetString() ?? "").Contains("Focus Four", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(planB.GetProperty("modules").EnumerateArray(), m =>
+            (m.GetProperty("title").GetString() ?? "").Contains("GFCI", StringComparison.OrdinalIgnoreCase));
+        Assert.NotEqual(planA.GetProperty("assessment").GetString(), planB.GetProperty("assessment").GetString());
+        Assert.Equal(25, planA.GetProperty("modules")[0].GetProperty("minutes").GetInt32());
+        Assert.Equal(15, planB.GetProperty("modules")[0].GetProperty("minutes").GetInt32());
     }
 
     [Fact]
