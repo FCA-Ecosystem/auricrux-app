@@ -26,7 +26,8 @@ public static class ApprenticeLessonPlanComposer
         string? Role,
         string? Slice,
         string? ProjectId,
-        IReadOnlyList<string>? KnownGaps);
+        IReadOnlyList<string>? KnownGaps,
+        string? FieldActivity = null);
 
     public sealed record Module(
         int Order,
@@ -98,6 +99,18 @@ public static class ApprenticeLessonPlanComposer
                 "field-lesson"));
         }
 
+        if (!string.IsNullOrWhiteSpace(request.FieldActivity))
+        {
+            modules.Add(new Module(
+                order++,
+                "field-now",
+                $"Field now for {apprenticeId}",
+                $"The apprentice is currently doing: {request.FieldActivity.Trim()}. Connect this field work to the job lesson and study modules. Not unique synthesis.",
+                minutes,
+                jobLesson?.LessonId,
+                "field-activity"));
+        }
+
         foreach (var gap in gaps)
         {
             var hit = textbooks.FirstOrDefault(t =>
@@ -154,7 +167,8 @@ public static class ApprenticeLessonPlanComposer
         var role = NormalizeRole(request.Role) ?? "apprentice";
         var slice = (request.Slice ?? "foundation-pour").Trim();
         var gaps = NormalizeGaps(request.KnownGaps, slice);
-        return string.Join(" ", new[] { slice, role }.Concat(gaps));
+        var field = (request.FieldActivity ?? "").Trim();
+        return string.Join(" ", new[] { slice, role, field }.Where(s => !string.IsNullOrWhiteSpace(s)).Concat(gaps));
     }
 
     private static Result Silenced(string reason) =>

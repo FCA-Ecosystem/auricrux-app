@@ -21,6 +21,7 @@ public sealed class BreakthroughController(
     PedagogyActService pedagogyAct,
     TextbookCorpusService textbookCorpus,
     ApprenticeLessonPlanService apprenticeLessonPlans,
+    CognitiveLoopService cognitiveLoop,
     ILogger<BreakthroughController> logger) : ControllerBase
 {
     /// <summary>
@@ -328,6 +329,7 @@ public sealed class BreakthroughController(
             erectionControls = status.ErectionControls,
             textbookChunks = status.TextbookChunks,
             apprenticeLessonPlans = status.ApprenticeLessonPlans,
+            cognitiveCycles = status.CognitiveCycles,
             pmOrFinanceMutated = false
         });
     }
@@ -388,6 +390,81 @@ public sealed class BreakthroughController(
     }
 
     /// <summary>
+    /// One field↔lesson↔system turn. Observes current field work, composes a
+    /// job-grounded lesson, applies that lesson to Auricrux controls when
+    /// human-accepted, and confirms the prior turn on the next observation.
+    /// Not unique synthesis. Not catalog actuation.
+    /// </summary>
+    [HttpPost("cognitive-loop")]
+    public async Task<ActionResult<object>> RunCognitiveLoop(
+        [FromBody] CognitiveLoopRequestBody? body,
+        CancellationToken cancellationToken)
+    {
+        var request = new CognitiveLoopComposer.Request(
+            body?.ApprenticeId,
+            body?.Role,
+            body?.Slice,
+            body?.ProjectId,
+            body?.FieldActivity,
+            body?.KnownGaps,
+            body?.HumanAccepted ?? false,
+            body?.DecisionId,
+            body?.VerificationId);
+        var result = await cognitiveLoop.RunAsync(request, cancellationToken);
+        var cycle = result.Cycle;
+        return Ok(new
+        {
+            silenced = result.Silence,
+            silenceReason = result.SilenceReason,
+            uniqueSynthesis = result.UniqueSynthesis,
+            catalogMatching = result.CatalogMatching,
+            catalogActuated = result.CatalogActuated,
+            pmOrFinanceMutated = result.PmOrFinanceMutated,
+            observe = cycle?.Observe,
+            understand = cycle?.Understand,
+            learn = cycle?.Learn,
+            act = cycle?.Act,
+            improve = cycle?.Improve,
+            connect = cycle?.Connect,
+            actApplied = cycle?.ActApplied ?? result.Act.Applied,
+            priorTurnConfirmed = cycle?.PriorTurnConfirmed ?? false,
+            holdStillInForce = cycle?.HoldStillInForce ?? false,
+            cycleNumber = cycle?.CycleNumber,
+            durableStore = pedagogyAct.AtlasConfigured
+                ? BreakthroughLoopStore.AtlasDurableStore
+                : BreakthroughLoopStore.ProcessMemoryDurableStore,
+            cycle,
+            plan = result.Plan,
+            appliedAct = result.Act
+        });
+    }
+
+    /// <summary>
+    /// List field↔lesson↔system turns. Not unique synthesis.
+    /// </summary>
+    [HttpGet("cognitive-loop")]
+    public ActionResult<object> ListCognitiveLoop(
+        [FromQuery] string? apprenticeId,
+        [FromQuery] string? projectId,
+        [FromQuery] int limit = 20)
+    {
+        var cycles = cognitiveLoop.List(apprenticeId, projectId, limit);
+        return Ok(new
+        {
+            apprenticeId,
+            projectId,
+            count = cycles.Count,
+            uniqueSynthesis = false,
+            catalogActuated = false,
+            pmOrFinanceMutated = false,
+            durableStore = pedagogyAct.AtlasConfigured
+                ? BreakthroughLoopStore.AtlasDurableStore
+                : BreakthroughLoopStore.ProcessMemoryDurableStore,
+            cycles
+        });
+    }
+
+    /// <summary>
     /// Claude-authored Academy textbook chunks in Atlas. Retrieval only.
     /// Does not actuate Academy catalog or CTE credentials.
     /// </summary>
@@ -423,6 +500,20 @@ public sealed class ApprenticeLessonPlanRequestBody
     public string? Slice { get; init; }
     public string? ProjectId { get; init; }
     public List<string>? KnownGaps { get; init; }
+}
+
+/// <summary>One field↔lesson↔system cognitive-loop turn. Not unique synthesis.</summary>
+public sealed class CognitiveLoopRequestBody
+{
+    public string? ApprenticeId { get; init; }
+    public string? Role { get; init; }
+    public string? Slice { get; init; }
+    public string? ProjectId { get; init; }
+    public string? FieldActivity { get; init; }
+    public List<string>? KnownGaps { get; init; }
+    public bool HumanAccepted { get; init; }
+    public string? DecisionId { get; init; }
+    public string? VerificationId { get; init; }
 }
 
 /// <summary>Request to generate competing hypotheses for a decision.</summary>

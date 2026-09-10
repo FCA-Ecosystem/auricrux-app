@@ -26,6 +26,8 @@ public sealed class BreakthroughLoopStore
     private readonly ConcurrentDictionary<string, ErectionControlRecord> _erectionControls = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentBag<ApprenticeLessonPlanComposer.Plan> _apprenticePlans = [];
     private readonly ConcurrentDictionary<string, byte> _apprenticePlanIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentBag<CognitiveLoopComposer.Cycle> _cognitiveCycles = [];
+    private readonly ConcurrentDictionary<string, byte> _cognitiveCycleIds = new(StringComparer.OrdinalIgnoreCase);
 
     public const int HoldStripExtraDays = 3;
     public const int HoldErectionExtraDays = 2;
@@ -39,6 +41,7 @@ public sealed class BreakthroughLoopStore
     public const string PourControlsCollection = "pour_controls";
     public const string ErectionControlsCollection = "erection_controls";
     public const string ApprenticeLessonPlansCollection = "apprentice_lesson_plans";
+    public const string CognitiveLoopTurnsCollection = "cognitive_loop_turns";
 
     public BreakthroughLoopStore(AtlasClient? atlas = null) => _atlas = atlas;
 
@@ -145,6 +148,39 @@ public sealed class BreakthroughLoopStore
 
         return rows
             .OrderByDescending(p => p.PlanId)
+            .Take(Math.Clamp(limit, 1, 100))
+            .ToList();
+    }
+
+    public async Task RememberCognitiveCycleAsync(
+        CognitiveLoopComposer.Cycle cycle,
+        CancellationToken ct = default)
+    {
+        if (_cognitiveCycleIds.TryAdd(cycle.CycleId, 0))
+            _cognitiveCycles.Add(cycle);
+        await TryPersistCognitiveCycleAsync(cycle, ct);
+    }
+
+    public IReadOnlyList<CognitiveLoopComposer.Cycle> ListCognitiveCycles(
+        string? apprenticeId,
+        string? projectId,
+        int limit = 20)
+    {
+        var rows = _cognitiveCycles.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(apprenticeId))
+        {
+            rows = rows.Where(c =>
+                string.Equals(c.ApprenticeId, apprenticeId, StringComparison.OrdinalIgnoreCase));
+        }
+        if (!string.IsNullOrWhiteSpace(projectId))
+        {
+            rows = rows.Where(c =>
+                string.Equals(c.ProjectId, projectId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return rows
+            .OrderByDescending(c => c.CreatedAtUtc)
+            .ThenByDescending(c => c.CycleNumber)
             .Take(Math.Clamp(limit, 1, 100))
             .ToList();
     }
@@ -367,6 +403,54 @@ public sealed class BreakthroughLoopStore
         }
     }
 
+    public async Task<bool> TryPersistCognitiveCycleAsync(
+        CognitiveLoopComposer.Cycle cycle,
+        CancellationToken ct = default)
+    {
+        if (!AtlasConfigured)
+            return false;
+        try
+        {
+            var docs = _atlas!.Database!.GetCollection<BsonDocument>(CognitiveLoopTurnsCollection);
+            var doc = new BsonDocument
+            {
+                ["_id"] = cycle.CycleId,
+                ["cycle_number"] = cycle.CycleNumber,
+                ["apprentice_id"] = cycle.ApprenticeId,
+                ["role"] = cycle.Role,
+                ["slice"] = cycle.Slice,
+                ["project_id"] = cycle.ProjectId ?? "",
+                ["field_activity"] = cycle.FieldActivity,
+                ["observe"] = cycle.Observe,
+                ["understand"] = cycle.Understand,
+                ["learn"] = cycle.Learn,
+                ["act"] = cycle.Act,
+                ["improve"] = cycle.Improve,
+                ["connect"] = cycle.Connect,
+                ["plan_id"] = cycle.PlanId ?? "",
+                ["job_lesson_id"] = cycle.JobLessonId ?? "",
+                ["proposed_action"] = cycle.ProposedAction ?? "",
+                ["act_applied"] = cycle.ActApplied,
+                ["prior_turn_confirmed"] = cycle.PriorTurnConfirmed,
+                ["hold_still_in_force"] = cycle.HoldStillInForce,
+                ["unique_synthesis"] = false,
+                ["catalog_actuated"] = false,
+                ["pm_or_finance_mutated"] = false,
+                ["created_at_utc"] = cycle.CreatedAtUtc
+            };
+            await docs.ReplaceOneAsync(
+                Builders<BsonDocument>.Filter.Eq("_id", cycle.CycleId),
+                doc,
+                new ReplaceOptions { IsUpsert = true },
+                ct);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task HydrateFromAtlasAsync(CancellationToken ct = default)
     {
         if (!AtlasConfigured)
@@ -490,6 +574,41 @@ public sealed class BreakthroughLoopStore
                     CatalogMatching: false,
                     CatalogActuated: false));
             }
+
+            var cycles = await _atlas.Database.GetCollection<BsonDocument>(CognitiveLoopTurnsCollection)
+                .Find(FilterDefinition<BsonDocument>.Empty)
+                .Limit(200)
+                .ToListAsync(ct);
+            foreach (var doc in cycles)
+            {
+                var cycleId = doc.GetValue("_id", "").ToString() ?? "";
+                if (string.IsNullOrWhiteSpace(cycleId) || !_cognitiveCycleIds.TryAdd(cycleId, 0))
+                    continue;
+                _cognitiveCycles.Add(new CognitiveLoopComposer.Cycle(
+                    cycleId,
+                    doc.GetValue("cycle_number", 1).ToInt32(),
+                    doc.GetValue("apprentice_id", "").AsString,
+                    doc.GetValue("role", "").AsString,
+                    doc.GetValue("slice", "").AsString,
+                    doc.GetValue("project_id", "").AsString,
+                    doc.GetValue("field_activity", "").AsString,
+                    doc.GetValue("observe", "").AsString,
+                    doc.GetValue("understand", "").AsString,
+                    doc.GetValue("learn", "").AsString,
+                    doc.GetValue("act", "").AsString,
+                    doc.GetValue("improve", "").AsString,
+                    doc.GetValue("connect", "").AsString,
+                    doc.GetValue("plan_id", "").AsString,
+                    doc.GetValue("job_lesson_id", "").AsString,
+                    doc.GetValue("proposed_action", "").AsString,
+                    doc.GetValue("act_applied", false).ToBoolean(),
+                    doc.GetValue("prior_turn_confirmed", false).ToBoolean(),
+                    doc.GetValue("hold_still_in_force", false).ToBoolean(),
+                    UniqueSynthesis: false,
+                    CatalogActuated: false,
+                    PmOrFinanceMutated: false,
+                    ReadUtc(doc, "created_at_utc")));
+            }
         }
         catch
         {
@@ -512,7 +631,8 @@ public sealed class BreakthroughLoopStore
                 Builders<BsonDocument>.Filter.Eq("domain", "academy-textbook"),
                 cancellationToken: ct);
             var plans = await db.GetCollection<BsonDocument>(ApprenticeLessonPlansCollection).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct);
-            return new NsfAtlasDurabilityStatus(true, "ok", comparisons, lessons, pours, erections, textbooks, plans);
+            var cycles = await db.GetCollection<BsonDocument>(CognitiveLoopTurnsCollection).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct);
+            return new NsfAtlasDurabilityStatus(true, "ok", comparisons, lessons, pours, erections, textbooks, plans, cycles);
         }
         catch
         {
@@ -547,7 +667,8 @@ public sealed record NsfAtlasDurabilityStatus(
     long PourControls,
     long ErectionControls,
     long TextbookChunks = 0,
-    long ApprenticeLessonPlans = 0);
+    long ApprenticeLessonPlans = 0,
+    long CognitiveCycles = 0);
 
 /// <summary>
 /// Actionable control item derived from a closed breakthrough loop — not a job-cost mutation.

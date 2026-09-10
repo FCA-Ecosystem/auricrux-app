@@ -44,7 +44,7 @@ public sealed class ApprenticeLessonPlanService
     public IReadOnlyList<ApprenticeLessonPlanComposer.Plan> List(string? apprenticeId, int limit = 20) =>
         _loop.ListApprenticeLessonPlans(apprenticeId, limit);
 
-    private ApprenticeLessonPlanComposer.JobLessonGrounding? LatestJobLesson(string? projectId, string? slice)
+    public ApprenticeLessonPlanComposer.JobLessonGrounding? LatestJobLesson(string? projectId, string? slice)
     {
         var lessons = _loop.ListFieldLessons(projectId, 8);
         if (!string.IsNullOrWhiteSpace(slice))

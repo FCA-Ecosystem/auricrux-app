@@ -559,6 +559,93 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
+    public async Task Cognitive_loop_silences_without_field_activity()
+    {
+        var pour = await _client.PostAsJsonAsync("/api/breakthrough/demo/foundation-pour", new
+        {
+            projectId = $"loop-silence-{Guid.NewGuid():N}",
+            seedAdditionalVerifications = 10
+        });
+        Assert.Equal(HttpStatusCode.OK, pour.StatusCode);
+
+        var response = await _client.PostAsJsonAsync("/api/breakthrough/cognitive-loop", new
+        {
+            apprenticeId = "apprentice-loop",
+            role = "first-year-apprentice",
+            slice = "foundation-pour"
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var doc = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(doc.RootElement.GetProperty("silenced").GetBoolean());
+        Assert.Contains("Field activity", doc.RootElement.GetProperty("silenceReason").GetString());
+        Assert.False(doc.RootElement.GetProperty("uniqueSynthesis").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("catalogActuated").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Cognitive_loop_applies_field_lesson_back_into_auricrux_controls()
+    {
+        var projectId = $"loop-apply-{Guid.NewGuid():N}";
+        var pourResponse = await _client.PostAsJsonAsync("/api/breakthrough/demo/foundation-pour", new
+        {
+            projectId,
+            seedAdditionalVerifications = 10
+        });
+        Assert.Equal(HttpStatusCode.OK, pourResponse.StatusCode);
+        using var pourDoc = System.Text.Json.JsonDocument.Parse(await pourResponse.Content.ReadAsStringAsync());
+        var decisionId = pourDoc.RootElement.GetProperty("decisionId").GetString();
+        var verificationId = pourDoc.RootElement.GetProperty("verification").GetProperty("verificationId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(decisionId));
+        Assert.False(string.IsNullOrWhiteSpace(verificationId));
+
+        var first = await _client.PostAsJsonAsync("/api/breakthrough/cognitive-loop", new
+        {
+            apprenticeId = "apprentice-loop-a",
+            role = "first-year-apprentice",
+            slice = "foundation-pour",
+            projectId,
+            fieldActivity = "checking cylinder breaks before stripping forms",
+            knownGaps = new[] { "Focus Four" },
+            humanAccepted = true,
+            decisionId,
+            verificationId
+        });
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        using var a = System.Text.Json.JsonDocument.Parse(await first.Content.ReadAsStringAsync());
+        Assert.False(a.RootElement.GetProperty("silenced").GetBoolean());
+        Assert.False(a.RootElement.GetProperty("uniqueSynthesis").GetBoolean());
+        Assert.False(a.RootElement.GetProperty("catalogActuated").GetBoolean());
+        Assert.False(a.RootElement.GetProperty("pmOrFinanceMutated").GetBoolean());
+        Assert.True(a.RootElement.GetProperty("actApplied").GetBoolean());
+        Assert.Equal(1, a.RootElement.GetProperty("cycleNumber").GetInt32());
+        Assert.Contains("Observe:", a.RootElement.GetProperty("observe").GetString());
+        var modules = a.RootElement.GetProperty("plan").GetProperty("modules").EnumerateArray().ToList();
+        Assert.Contains(modules, m => m.GetProperty("kind").GetString() == "field-now");
+        Assert.Contains(modules, m => m.GetProperty("kind").GetString() == "job-evidence");
+
+        var second = await _client.PostAsJsonAsync("/api/breakthrough/cognitive-loop", new
+        {
+            apprenticeId = "apprentice-loop-a",
+            role = "first-year-apprentice",
+            slice = "foundation-pour",
+            projectId,
+            fieldActivity = "still at the wall, forms not stripped",
+            humanAccepted = true,
+            decisionId,
+            verificationId
+        });
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        using var b = System.Text.Json.JsonDocument.Parse(await second.Content.ReadAsStringAsync());
+        Assert.False(b.RootElement.GetProperty("silenced").GetBoolean());
+        Assert.False(b.RootElement.GetProperty("uniqueSynthesis").GetBoolean());
+        Assert.True(b.RootElement.GetProperty("priorTurnConfirmed").GetBoolean());
+        Assert.True(b.RootElement.GetProperty("holdStillInForce").GetBoolean());
+        Assert.Equal(2, b.RootElement.GetProperty("cycleNumber").GetInt32());
+        Assert.Contains("Not unique synthesis", b.RootElement.GetProperty("improve").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Pile_demo_closes_nsf_loop()
     {
         var response = await _client.PostAsJsonAsync("/api/breakthrough/demo/driven-pile", new

@@ -42,6 +42,7 @@ builder.Services.AddSingleton<AtlasService>();
 builder.Services.AddSingleton<AtlasCorpusService>();
 builder.Services.AddSingleton<TextbookCorpusService>();
 builder.Services.AddSingleton<ApprenticeLessonPlanService>();
+builder.Services.AddSingleton<CognitiveLoopService>();
 builder.Services.AddSingleton<AuricruxModelRouter>();
 
 builder.Services.AddSingleton<ConstructionIntelligenceService>();

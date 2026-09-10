@@ -133,6 +133,33 @@ Invoke-SmokeCheck "POST /api/breakthrough/apprentice-lesson-plan (learner-specif
     "apprentice=$($r.plan.apprenticeId) role=$($r.plan.role) modules=$(@($r.plan.modules).Count)"
 }
 
+Invoke-SmokeCheck "POST /api/breakthrough/cognitive-loop (field↔lesson↔system, not unique synthesis)" {
+    $denied = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/cognitive-loop" -Method Post -Body '{"apprenticeId":"apprentice-loop-live","role":"first-year-apprentice","slice":"foundation-pour"}' -ContentType "application/json" -TimeoutSec 30
+    if ($denied.silenced -ne $true) { throw "missing fieldActivity must silence" }
+
+    $projectId = "cognitive-smoke-$(Get-Random)"
+    $pour = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/demo/foundation-pour" -Method Post -Body (@{ projectId = $projectId; seedAdditionalVerifications = 10 } | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 60
+    if ($pour.pedagogyProposedAction -ne "hold-strip") { throw "expected hold-strip closed pour" }
+    $firstBody = @{
+        apprenticeId = "apprentice-loop-live"
+        role = "first-year-apprentice"
+        slice = "foundation-pour"
+        projectId = $projectId
+        fieldActivity = "checking cylinder breaks before stripping forms"
+        knownGaps = @("Focus Four")
+        humanAccepted = $true
+        decisionId = $pour.decisionId
+        verificationId = $pour.verification.verificationId
+    } | ConvertTo-Json
+    $first = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/cognitive-loop" -Method Post -Body $firstBody -ContentType "application/json" -TimeoutSec 60
+    if ($first.silenced -eq $true) { throw "expected a cognitive turn, got $($first.silenceReason)" }
+    if ($first.uniqueSynthesis -eq $true) { throw "must not claim unique synthesis" }
+    if ($first.actApplied -ne $true) { throw "human-accepted turn must apply the lesson" }
+    $kinds = @($first.plan.modules) | ForEach-Object { $_.kind }
+    if ($kinds -notcontains "field-now") { throw "expected field-now module" }
+    "cycle=$($first.cycleNumber) actApplied=$($first.actApplied) observe=$($first.observe)"
+}
+
 Invoke-SmokeCheck "POST /api/breakthrough/act (proof-gated pour-control hold)" {
     $pour = Invoke-RestMethod -Uri "$baseUrl/api/breakthrough/demo/foundation-pour" -Method Post -Body '{}' -ContentType "application/json" -TimeoutSec 60
     $decisionId = $pour.decisionId
