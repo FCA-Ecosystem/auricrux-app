@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Auricrux.Shared.Models;
 using Auricrux.Web.Services.Breakthrough;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
@@ -643,6 +644,48 @@ public sealed class BreakthroughApiTests : IClassFixture<WebApplicationFactory<P
         Assert.True(b.RootElement.GetProperty("holdStillInForce").GetBoolean());
         Assert.Equal(2, b.RootElement.GetProperty("cycleNumber").GetInt32());
         Assert.Contains("Not unique synthesis", b.RootElement.GetProperty("improve").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Chat_runs_cognitive_loop_when_field_work_has_apprentice_identity()
+    {
+        var projectId = $"chat-loop-{Guid.NewGuid():N}";
+        var pour = await _client.PostAsJsonAsync("/api/breakthrough/demo/foundation-pour", new
+        {
+            projectId,
+            seedAdditionalVerifications = 10
+        });
+        Assert.Equal(HttpStatusCode.OK, pour.StatusCode);
+
+        var missing = await _client.PostAsJsonAsync("/api/chat", new ChatRequest
+        {
+            Query = "checking cylinder breaks before stripping forms"
+        });
+        Assert.Equal(HttpStatusCode.OK, missing.StatusCode);
+        var missingBody = await missing.Content.ReadFromJsonAsync<ChatResponse>();
+        Assert.NotNull(missingBody);
+        Assert.Null(missingBody!.CognitiveLoop);
+
+        var field = await _client.PostAsJsonAsync("/api/chat", new ChatRequest
+        {
+            Query = "checking cylinder breaks before stripping forms",
+            ApprenticeId = "apprentice-chat-1",
+            Role = "first-year-apprentice",
+            ProjectId = projectId,
+            Phase = "foundation-pour"
+        });
+        Assert.Equal(HttpStatusCode.OK, field.StatusCode);
+        var body = await field.Content.ReadFromJsonAsync<ChatResponse>();
+        Assert.NotNull(body);
+        Assert.False(string.IsNullOrWhiteSpace(body!.Content));
+        Assert.NotNull(body.CognitiveLoop);
+        Assert.False(body.CognitiveLoop!.Silenced);
+        Assert.False(body.CognitiveLoop.UniqueSynthesis);
+        Assert.False(body.CognitiveLoop.CatalogActuated);
+        Assert.False(body.CognitiveLoop.PmOrFinanceMutated);
+        Assert.False(body.CognitiveLoop.ActApplied);
+        Assert.Contains("Observe:", body.CognitiveLoop.Observe);
+        Assert.Contains("Learn:", body.CognitiveLoop.Learn);
     }
 
     [Fact]

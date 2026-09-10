@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Auricrux.Shared.Models;
+using Auricrux.Web.Services.PhaseII;
 using MongoDB.Bson;
 
 namespace Auricrux.Web.Services;
@@ -23,6 +24,7 @@ public sealed class ConstructionIntelligenceService
     private readonly AtlasService _atlas;
     private readonly AuricruxModelRouter _router;
     private readonly ContextAwareGuidanceService? _contextService;
+    private readonly CognitiveLoopService? _cognitiveLoop;
     private readonly Dictionary<Guid, ChatResponse> _interactions = new();
     private readonly object _gate = new();
 
@@ -35,7 +37,8 @@ public sealed class ConstructionIntelligenceService
         TextbookCorpusService textbookCorpus,
         AtlasService atlas,
         AuricruxModelRouter router,
-        ContextAwareGuidanceService? contextService = null)
+        ContextAwareGuidanceService? contextService = null,
+        CognitiveLoopService? cognitiveLoop = null)
     {
         _httpClientFactory = httpClientFactory;
         _config = config;
@@ -45,6 +48,7 @@ public sealed class ConstructionIntelligenceService
         _atlas = atlas;
         _router = router;
         _contextService = contextService;
+        _cognitiveLoop = cognitiveLoop;
         _corpus = LoadCorpus(env.ContentRootPath);
     }
 
@@ -156,7 +160,8 @@ public sealed class ConstructionIntelligenceService
         }
 
         var thinking = await ThinkAsync(new ThinkingRequest { Query = request.Query, Mode = request.ThinkingMode }, resolvedModel, ct);
-        var system = BuildSystemPrompt(request.ThinkingMode, sources);
+        var loopEnvelope = await TryRunCognitiveLoopAsync(request, ct);
+        var system = BuildSystemPrompt(request.ThinkingMode, sources, loopEnvelope);
         // Use context-enhanced query for LLM completion
         var content = await CompleteAsync(system, effectiveQuery, request.ConversationHistory, resolvedModel, ct);
         sw.Stop();
@@ -169,7 +174,8 @@ public sealed class ConstructionIntelligenceService
             Timestamp = DateTime.UtcNow,
             ProcessingTimeMs = sw.ElapsedMilliseconds,
             ConfidenceScore = sources.Count > 0 ? 0.86 : 0.72,
-            InteractionId = Guid.NewGuid()
+            InteractionId = Guid.NewGuid(),
+            CognitiveLoop = loopEnvelope
         };
 
         // Persist interaction to in-memory cache (for TryGetInteraction fallback)
@@ -211,6 +217,10 @@ public sealed class ConstructionIntelligenceService
                     ["phase"] = request.Phase ?? "",
                     ["context_summary"] = contextSummary ?? "",
                     ["context_enhanced"] = contextSummary != null,
+                    ["cognitive_loop_silenced"] = loopEnvelope?.Silenced,
+                    ["cognitive_loop_act_applied"] = loopEnvelope?.ActApplied ?? false,
+                    ["unique_synthesis"] = false,
+                    ["catalog_actuated"] = false,
                 }, cancellationToken: ct);
             }
             catch (Exception ex)
@@ -367,7 +377,7 @@ public sealed class ConstructionIntelligenceService
             """;
     }
 
-    private static string BuildSystemPrompt(ThinkingMode mode, List<Source> sources)
+    private static string BuildSystemPrompt(ThinkingMode mode, List<Source> sources, CognitiveLoopChatEnvelope? loop = null)
     {
         // Prior bug: only titles were injected, so generative answers ignored corpus facts
         // already retrieved (RCSC torque, Manual D, silica controls, TIA/fragnet, Proctor, etc.).
@@ -395,7 +405,84 @@ public sealed class ConstructionIntelligenceService
             Thinking mode: {mode}.
             Grounding excerpts:
             {src}
+            {LoopGrounding(loop)}
             """;
+    }
+
+    private static string LoopGrounding(CognitiveLoopChatEnvelope? loop)
+    {
+        if (loop is null)
+            return "";
+        if (loop.Silenced)
+            return "Field↔lesson loop silenced this turn. Do not invent a learner, a field activity, or a unique lesson. Do not claim catalog actuation or PM/finance mutation.";
+        return $"""
+            Field↔lesson↔system loop (not unique synthesis, not catalog actuation, not PM/finance):
+            {loop.Observe}
+            {loop.Understand}
+            {loop.Learn}
+            {loop.Act}
+            {loop.Improve}
+            {loop.Connect}
+            Ground the answer in this loop. Human accept is required before applying a hold to Auricrux controls.
+            """;
+    }
+
+    private async Task<CognitiveLoopChatEnvelope?> TryRunCognitiveLoopAsync(ChatRequest request, CancellationToken ct)
+    {
+        if (_cognitiveLoop is null || !CognitiveLoopComposer.LooksLikeFieldWork(request.Query))
+            return null;
+
+        var apprenticeId = string.IsNullOrWhiteSpace(request.ApprenticeId) ? request.UserId : request.ApprenticeId;
+        if (string.IsNullOrWhiteSpace(apprenticeId))
+            return null;
+
+        try
+        {
+            var slice = SliceFrom(request);
+            var result = await _cognitiveLoop.RunAsync(
+                new CognitiveLoopComposer.Request(
+                    apprenticeId,
+                    request.Role,
+                    slice,
+                    request.ProjectId,
+                    request.Query,
+                    KnownGaps: null,
+                    request.HumanAccepted,
+                    request.DecisionId,
+                    request.VerificationId),
+                ct);
+            return new CognitiveLoopChatEnvelope
+            {
+                Silenced = result.Silence,
+                SilenceReason = result.SilenceReason,
+                Observe = result.Cycle?.Observe,
+                Understand = result.Cycle?.Understand,
+                Learn = result.Cycle?.Learn,
+                Act = result.Cycle?.Act,
+                Improve = result.Cycle?.Improve,
+                Connect = result.Cycle?.Connect,
+                ActApplied = result.Cycle?.ActApplied ?? result.Act.Applied,
+                PriorTurnConfirmed = result.Cycle?.PriorTurnConfirmed ?? false,
+                HoldStillInForce = result.Cycle?.HoldStillInForce ?? false,
+                UniqueSynthesis = false,
+                CatalogActuated = false,
+                PmOrFinanceMutated = false
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Cognitive loop failed; chat continues without it");
+            return null;
+        }
+    }
+
+    private static string SliceFrom(ChatRequest request)
+    {
+        var text = $"{request.Phase} {request.Query}";
+        return text.Contains("steel", StringComparison.OrdinalIgnoreCase)
+               || text.Contains("erect", StringComparison.OrdinalIgnoreCase)
+            ? "steel"
+            : "foundation-pour";
     }
 
     private List<Source> SearchInternal(string query, SearchScope scope, int take)

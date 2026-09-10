@@ -1,6 +1,9 @@
 @page "/breakthrough/foundation-pour"
+@using Auricrux.Web.Services
 @using Auricrux.Web.Services.Breakthrough
+@using Auricrux.Web.Services.PhaseII
 @inject FoundationPourDemoService DemoService
+@inject CognitiveLoopService CognitiveLoop
 @inject ILogger<FoundationPourDemo> Logger
 @rendermode InteractiveServer
 
@@ -119,6 +122,41 @@
                         <li><code>@lesson.ProposedAction</code> — @lesson.Topic</li>
                     }
                 </ul>
+            }
+        </section>
+
+        <section class="pour-demo__step">
+            <h2>6. Field ↔ lesson ↔ system</h2>
+            <p>
+                Describe what the apprentice is doing now. Auricrux connects that field work to the job-derived lesson
+                and, if you accept, applies it back into Auricrux pour-control. Not unique synthesis. Not a PM row.
+            </p>
+            <div class="pour-demo__actions">
+                <label>Apprentice <input type="text" @bind="loopApprenticeId" /></label>
+                <label>Field now <input type="text" @bind="loopFieldActivity" style="min-width:22rem;" /></label>
+                <label><input type="checkbox" @bind="loopHumanAccepted" /> Accept hold</label>
+                <button class="pour-demo__run" disabled="@(loopRunning || result is null || result.PedagogySilence)" @onclick="RunCognitiveLoopAsync">
+                    @(loopRunning ? "Looping…" : "Run cognitive loop")
+                </button>
+            </div>
+            @if (loopError is not null)
+            {
+                <p class="pour-demo__reason">@loopError</p>
+            }
+            else if (loopResult is not null && loopResult.Silence)
+            {
+                <p class="pour-demo__reason">Silenced. @loopResult.SilenceReason</p>
+            }
+            else if (loopResult?.Cycle is not null)
+            {
+                <dl class="pour-demo__meta">
+                    <div><dt>Observe</dt><dd>@loopResult.Cycle.Observe</dd></div>
+                    <div><dt>Understand</dt><dd>@loopResult.Cycle.Understand</dd></div>
+                    <div><dt>Learn</dt><dd>@loopResult.Cycle.Learn</dd></div>
+                    <div><dt>Act</dt><dd>@loopResult.Cycle.Act</dd></div>
+                    <div><dt>Improve</dt><dd>@loopResult.Cycle.Improve</dd></div>
+                    <div><dt>Connect</dt><dd>@loopResult.Cycle.Connect</dd></div>
+                </dl>
             }
         </section>
 
@@ -267,6 +305,12 @@
     private double slabThicknessIn = 8;
     private double relativeHumidity = 0.55;
     private double windSpeedMph = 8;
+    private string loopApprenticeId = "apprentice-nsf-1";
+    private string loopFieldActivity = "checking cylinder breaks before stripping forms";
+    private bool loopHumanAccepted;
+    private bool loopRunning;
+    private string? loopError;
+    private CognitiveLoopComposer.Result? loopResult;
 
     private async Task RunDemoAsync()
     {
@@ -295,6 +339,37 @@
         finally
         {
             running = false;
+        }
+    }
+
+    private async Task RunCognitiveLoopAsync()
+    {
+        if (result is null)
+            return;
+        loopRunning = true;
+        loopError = null;
+        loopResult = null;
+        try
+        {
+            loopResult = await CognitiveLoop.RunAsync(new CognitiveLoopComposer.Request(
+                loopApprenticeId,
+                "first-year-apprentice",
+                "foundation-pour",
+                result.PourControl?.ProjectId,
+                loopFieldActivity,
+                ["Focus Four"],
+                loopHumanAccepted,
+                result.DecisionId,
+                result.Verification.VerificationId));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Cognitive loop from pour demo failed");
+            loopError = ex.Message;
+        }
+        finally
+        {
+            loopRunning = false;
         }
     }
 }

@@ -78,6 +78,18 @@ public class ChatRequest
 
     /// <summary>Current construction phase (e.g., "preconstruction", "foundations", "framing")</summary>
     public string? Phase { get; set; }
+
+    /// <summary>Apprentice id for the field↔lesson↔system loop. Falls back to UserId.</summary>
+    public string? ApprenticeId { get; set; }
+
+    /// <summary>When true and proof ids are present, apply the job-derived act to Auricrux controls. Default false.</summary>
+    public bool HumanAccepted { get; set; }
+
+    /// <summary>Closed-loop decision id used only when HumanAccepted is true.</summary>
+    public string? DecisionId { get; set; }
+
+    /// <summary>Closed-loop verification id used only when HumanAccepted is true.</summary>
+    public string? VerificationId { get; set; }
     
     // ── Phase 8: Typed FCA domain references (preferred) ─────────────────────────
     
@@ -116,6 +128,31 @@ public class ChatResponse
 
     /// <summary>Server interaction id when provided</summary>
     public Guid? InteractionId { get; set; }
+
+    /// <summary>
+    /// Field↔lesson↔system turn grounded in this query. Null when the query is not field work
+    /// or apprentice identity is missing. Not unique synthesis. Not catalog actuation.
+    /// </summary>
+    public CognitiveLoopChatEnvelope? CognitiveLoop { get; set; }
+}
+
+/// <summary>Chat-visible Observe→Improve envelope. Not unique synthesis.</summary>
+public class CognitiveLoopChatEnvelope
+{
+    public bool Silenced { get; set; }
+    public string? SilenceReason { get; set; }
+    public string? Observe { get; set; }
+    public string? Understand { get; set; }
+    public string? Learn { get; set; }
+    public string? Act { get; set; }
+    public string? Improve { get; set; }
+    public string? Connect { get; set; }
+    public bool ActApplied { get; set; }
+    public bool PriorTurnConfirmed { get; set; }
+    public bool HoldStillInForce { get; set; }
+    public bool UniqueSynthesis { get; set; }
+    public bool CatalogActuated { get; set; }
+    public bool PmOrFinanceMutated { get; set; }
 }
 
 /// <summary>

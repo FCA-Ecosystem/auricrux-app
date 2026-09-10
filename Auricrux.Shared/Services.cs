@@ -550,6 +550,11 @@ public class AuricruxService
         SearchScope searchScope = SearchScope.Both,
         string? model = null,
         string? accountEmail = null,
+        string? apprenticeId = null,
+        string? role = null,
+        string? projectId = null,
+        string? phase = null,
+        bool humanAccepted = false,
         CancellationToken cancellationToken = default)
     {
         try
@@ -562,6 +567,12 @@ public class AuricruxService
                 ThinkingMode = thinkingMode,
                 SearchScope = searchScope,
                 SessionId = SessionId,
+                UserId = apprenticeId,
+                ApprenticeId = apprenticeId,
+                Role = role,
+                ProjectId = projectId,
+                Phase = phase,
+                HumanAccepted = humanAccepted,
                 ConversationHistory = _interactionHistory
                     .OrderByDescending(x => x.Timestamp)
                     .Take(10)

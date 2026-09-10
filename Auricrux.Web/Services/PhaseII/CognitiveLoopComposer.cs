@@ -89,6 +89,27 @@ public static class CognitiveLoopComposer
         return null;
     }
 
+    public static bool LooksLikeFieldWork(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        var q = text.ToLowerInvariant();
+        return q.Contains("strip")
+               || q.Contains("form")
+               || q.Contains("cylinder")
+               || q.Contains("pour")
+               || q.Contains("steel")
+               || q.Contains("erect")
+               || q.Contains("deflection")
+               || q.Contains("gfci")
+               || q.Contains("focus four")
+               || q.Contains("checking")
+               || q.Contains("in the field")
+               || q.Contains("on site")
+               || q.Contains("on-site")
+               || q.Contains("at the wall");
+    }
+
     public static IReadOnlyList<string> InferGaps(
         string? fieldActivity,
         string? slice,

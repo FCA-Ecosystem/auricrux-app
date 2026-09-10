@@ -123,6 +123,30 @@
             </div>
         </div>
         <small class="opacity-75 d-block mt-1">@QuotaLabel</small>
+        <div class="row g-2 mt-2">
+            <div class="col-6 col-md-3">
+                <label class="form-label mb-1">Apprentice</label>
+                <input class="form-control form-control-sm" @bind="ApprenticeId" placeholder="apprentice id" />
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label mb-1">Role</label>
+                <select class="form-select form-select-sm" @bind="ApprenticeRole">
+                    <option value="first-year-apprentice">First-year apprentice</option>
+                    <option value="apprentice">Apprentice</option>
+                    <option value="journeyman-candidate">Journeyman candidate</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label mb-1">Project</label>
+                <input class="form-control form-control-sm" @bind="FieldProjectId" placeholder="project id" />
+            </div>
+            <div class="col-6 col-md-3 d-flex align-items-end">
+                <label class="form-label mb-0">
+                    <input type="checkbox" @bind="AcceptFieldAct" /> Accept hold into Auricrux controls
+                </label>
+            </div>
+        </div>
+        <small class="opacity-75 d-block mt-1">Field talk (stripping, cylinders, steel) runs the field↔lesson loop. Accept is required before a hold. Not unique synthesis.</small>
     </div>
 
     <div class="flex-grow-1 overflow-auto" style="background-color: #f7f4ee; padding: 20px;">
@@ -157,6 +181,17 @@
                             @if (message.ProcessingTimeMs > 0)
                             {
                                 <small class="text-muted">@message.ProcessingTimeMs ms</small>
+                            }
+                            @if (message.CognitiveLoop is not null && !message.CognitiveLoop.Silenced)
+                            {
+                                <div class="mt-2 small border-top pt-2">
+                                    <div><strong>Observe</strong> @message.CognitiveLoop.Observe</div>
+                                    <div><strong>Understand</strong> @message.CognitiveLoop.Understand</div>
+                                    <div><strong>Learn</strong> @message.CognitiveLoop.Learn</div>
+                                    <div><strong>Act</strong> @message.CognitiveLoop.Act</div>
+                                    <div><strong>Improve</strong> @message.CognitiveLoop.Improve</div>
+                                    <div><strong>Connect</strong> @message.CognitiveLoop.Connect</div>
+                                </div>
                             }
                             @if (!string.IsNullOrEmpty(message.InteractionId))
                             {
@@ -201,6 +236,10 @@
     private string MemoryBackend = "sqlite";
     private string FcaBearerToken = string.Empty;
     private string FcaLinkLabel = "FCA not linked";
+    private string ApprenticeId = string.Empty;
+    private string ApprenticeRole = "first-year-apprentice";
+    private string FieldProjectId = "demo-foundation-pour";
+    private bool AcceptFieldAct;
     private List<string> AvailableModels = new() { "llama3.2", "mistral", "auricrux" };
     private FreemiumAccount? Account;
     private IBrowserFile? SelectedBrowserFile;
@@ -550,7 +589,16 @@
             await InvokeAsync(StateHasChanged);
 
             var (response, interaction) = await AuricruxService.ProcessQueryAsync(
-                query, SelectedThinkingMode, SelectedSearchScope, SelectedModel, AccountEmail.Trim());
+                query,
+                SelectedThinkingMode,
+                SelectedSearchScope,
+                SelectedModel,
+                AccountEmail.Trim(),
+                string.IsNullOrWhiteSpace(ApprenticeId) ? null : ApprenticeId.Trim(),
+                ApprenticeRole,
+                string.IsNullOrWhiteSpace(FieldProjectId) ? null : FieldProjectId.Trim(),
+                phase: "foundation-pour",
+                humanAccepted: AcceptFieldAct);
 
             if (response != null)
             {
@@ -562,7 +610,8 @@
                     IsUser = false,
                     Timestamp = DateTime.Now,
                     InteractionId = interaction?.Id,
-                    ProcessingTimeMs = response.ProcessingTimeMs
+                    ProcessingTimeMs = response.ProcessingTimeMs,
+                    CognitiveLoop = response.CognitiveLoop
                 });
                 await ApiClient.AppendMemoryAsync(AuricruxService.SessionId, "assistant", response.Content, MemoryBackend);
                 StatusMessage = $"Completed in {response.ProcessingTimeMs}ms";
@@ -627,5 +676,6 @@
         public string? InteractionId { get; set; }
         public long ProcessingTimeMs { get; set; }
         public string? MediaUrl { get; set; }
+        public CognitiveLoopChatEnvelope? CognitiveLoop { get; set; }
     }
 }
